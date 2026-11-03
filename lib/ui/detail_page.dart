@@ -1,9 +1,11 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
+import 'widgets/color_palette.dart';
 
 /// 详情/编辑页：复用速记的自动落库逻辑（500ms 防抖），增加文件夹归属切换
 /// 打开方式：Navigator.push 全屏页（区别于速记的模态弹层）
@@ -143,12 +145,14 @@ class _DetailPageState extends State<DetailPage> {
               ),
             ),
           ),
+          _MetaBar(db: db, thought: widget.thought),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Row(children: [
               Text('$_wordCount 字',
-                  style:
-                      const TextStyle(fontSize: 11, color: T.inkTertiary)),
+                  style: TextStyle(
+                      fontSize: 11,
+                      color: _wordCount > 9000 ? T.warning : T.inkTertiary)),
               const Spacer(),
               const Text('自动保存',
                   style: TextStyle(fontSize: 11, color: T.inkTertiary)),
@@ -359,6 +363,89 @@ class _TagPickerSheetState extends State<_TagPickerSheet> {
           ),
         ]),
       ),
+    );
+  }
+}
+
+/// 元数据分组卡（美化 P2-③）：标签 / 文件夹 / 时间戳三行，按纸面网格对齐。
+class _MetaBar extends StatelessWidget {
+  final AppDatabase db;
+  final Thought thought;
+  const _MetaBar({required this.db, required this.thought});
+
+  @override
+  Widget build(BuildContext context) {
+    final created = DateTime.fromMillisecondsSinceEpoch(thought.createdAt);
+    final updated = DateTime.fromMillisecondsSinceEpoch(thought.updatedAt);
+    final fmt = DateFormat('yyyy/MM/dd HH:mm');
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      child: Column(children: [
+        // 标签行：实时反映标签面板写回结果
+        StreamBuilder<List<Tag>>(
+          stream: db.watchTagsOfThought(thought.id),
+          builder: (context, snap) {
+            final tags = snap.data ?? const <Tag>[];
+            if (tags.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(children: [
+                const Icon(Icons.label_outline,
+                    size: 14, color: T.inkTertiary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 4,
+                    children: tags
+                        .map((t) => Chip(
+                              avatar: Icon(Icons.label,
+                                  size: 12, color: hexToColor(t.color)),
+                              label: Text(t.name,
+                                  style: const TextStyle(fontSize: 11)),
+                              visualDensity: VisualDensity.compact,
+                              materialTapTargetSize:
+                                  MaterialTapTargetSize.shrinkWrap,
+                              padding: EdgeInsets.zero,
+                              backgroundColor: hexToColor(t.color)
+                                  .withValues(alpha: 0.12),
+                              side: BorderSide.none,
+                            ))
+                        .toList(),
+                  ),
+                ),
+              ]),
+            );
+          },
+        ),
+        // 文件夹 + 时间戳行
+        Row(children: [
+          StreamBuilder<List<FolderWithCount>>(
+            stream: db.watchFoldersWithCount(),
+            builder: (context, snap) {
+              final folders = snap.data ?? const <FolderWithCount>[];
+              String name = '收件箱';
+              Color color = T.inkTertiary;
+              for (final f in folders) {
+                if (f.folder.id == thought.folderId) {
+                  name = f.folder.name;
+                  color = hexToColor(f.folder.color);
+                }
+              }
+              return Row(mainAxisSize: MainAxisSize.min, children: [
+                Icon(Icons.folder_outlined, size: 14, color: color),
+                const SizedBox(width: 4),
+                Text(name,
+                    style: const TextStyle(
+                        fontSize: 11, color: T.inkSecondary)),
+              ]);
+            },
+          ),
+          const Spacer(),
+          Text('记于 ${fmt.format(created)} · 改于 ${fmt.format(updated)}',
+              style: const TextStyle(fontSize: 10, color: T.inkTertiary)),
+        ]),
+      ]),
     );
   }
 }

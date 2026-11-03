@@ -23,6 +23,7 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   String _themeMode = 'system';
   late final BackupService _backup = BackupService(appDb);
+  int _versionTaps = 0; // 创意 ⑦-4：版本行 7 连击彩蛋计数
 
   @override
   void initState() {
@@ -167,7 +168,7 @@ class _ProfilePageState extends State<ProfilePage> {
           // 品牌头卡（创意 ⑦-1）：水滴 Logo + 总览数据（总数/推进中/已完成）
           _BrandHeader(db: appDb),
           const SizedBox(height: 16),
-          _SectionHeader('外观'),
+          _SectionHeader('外观', color: T.brandPrimary),
           Card(
             child: RadioGroup<String>(
               groupValue: _themeMode,
@@ -188,7 +189,7 @@ class _ProfilePageState extends State<ProfilePage> {
               ]),
             ),
           ),
-          _SectionHeader('整理'),
+          _SectionHeader('整理', color: T.stageInspiration),
           Card(
             child: ListTile(
               leading: const Icon(Icons.label_outline, color: T.brandPrimary),
@@ -199,7 +200,7 @@ class _ProfilePageState extends State<ProfilePage> {
                   MaterialPageRoute(builder: (_) => TagManagePage(db: appDb))),
             ),
           ),
-          _SectionHeader('数据'),
+          _SectionHeader('数据', color: T.stageDone),
           Card(
             child: Column(children: [
               ListTile(
@@ -214,21 +215,37 @@ class _ProfilePageState extends State<ProfilePage> {
                 subtitle: const Text('从快照恢复全部数据'),
                 onTap: _restoreFlow,
               ),
-              ListTile(
-                leading: const Icon(Icons.delete_sweep_outlined, color: T.danger),
-                title: const Text('清空回收站'),
-                subtitle: const Text('永久删除回收站内的随记'),
-                onTap: _emptyTrash,
-              ),
             ]),
           ),
-          _SectionHeader('关于'),
+          // 创意 ⑦-3：危险区隔离——独立成卡 + dangerContainer 图标底，与常规数据操作隔开
+          const SizedBox(height: 8),
+          Card(
+            child: ListTile(
+              leading: Container(
+                width: 36,
+                height: 36,
+                decoration: BoxDecoration(
+                  color: Theme.of(context).brightness == Brightness.dark
+                      ? T.darkDangerContainer
+                      : T.dangerContainer,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.delete_sweep_outlined,
+                    size: 20, color: T.danger),
+              ),
+              title: const Text('清空回收站'),
+              subtitle: const Text('永久删除回收站内的随记'),
+              onTap: _emptyTrash,
+            ),
+          ),
+          _SectionHeader('关于', color: T.inkSecondary),
           Card(
             child: Column(children: [
-              const ListTile(
-                leading: Icon(Icons.water_drop_outlined, color: T.brandPrimary),
-                title: Text('随想随记'),
-                subtitle: Text('v1.0 · 本地优先 · 无账号无云同步'),
+              ListTile(
+                leading: const Icon(Icons.water_drop_outlined, color: T.brandPrimary),
+                title: const Text('随想随记'),
+                subtitle: const Text('v1.0 · 本地优先 · 无账号无云同步'),
+                onTap: _onVersionTap,
               ),
               ListTile(
                 leading: const Icon(Icons.info_outline),
@@ -244,8 +261,37 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  void _showSheet(BuildContext context, String title, String body) {
-    showModalBottomSheet<void>(
+  /// 创意 ⑦-4：版本行 7 连击彩蛋——三颗水滴依次点亮 + SnackBar
+  void _onVersionTap() {
+    _versionTaps++;
+    if (_versionTaps < 7) return;
+    _versionTaps = 0;
+    showDialog<void>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        content: Column(mainAxisSize: MainAxisSize.min, children: [
+          const Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+            DropBadge(kind: 'inspiration', color: T.stageInspiration, size: 28),
+            SizedBox(width: 12),
+            DropBadge(kind: 'in_progress', color: T.stageInProgress, size: 28),
+            SizedBox(width: 12),
+            DropBadge(kind: 'done', color: T.stageDone, size: 28),
+          ]),
+          const SizedBox(height: 16),
+          Text('水滴已集齐',
+              style: Theme.of(ctx).textTheme.titleMedium),
+          const SizedBox(height: 4),
+          const Text('灵感 → 推进 → 完成，每一滴都算数',
+              style: TextStyle(fontSize: 12, color: T.inkSecondary)),
+        ]),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('收下')),
+        ],
+      ),
+    );
+  }
+
+  void _showSheet(BuildContext context, String title, String body) {    showModalBottomSheet<void>(
       context: context,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(T.rSheet))),
@@ -264,15 +310,27 @@ class _ProfilePageState extends State<ProfilePage> {
 
 class _SectionHeader extends StatelessWidget {
   final String text;
-  const _SectionHeader(this.text);
+  final Color color; // 每组一色：外观=靛蓝、整理=雾靛、数据=珠绿、关于=墨蓝
+  const _SectionHeader(this.text, {this.color = T.brandPrimary});
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(4, 16, 4, 8),
-      child: Text(text,
-          style: TextStyle(
-              color: T.inkSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
+      child: Row(children: [
+        Container(
+          width: 6,
+          height: 6,
+          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+        ),
+        const SizedBox(width: 6),
+        Text(text,
+            style: const TextStyle(
+                color: T.inkSecondary,
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5)),
+      ]),
     );
   }
 }

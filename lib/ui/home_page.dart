@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui' as ui show TextDirection;
 
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
@@ -107,6 +108,20 @@ class _HomePageState extends State<HomePage> {
               decoration: InputDecoration(
                 isDense: true,
                 hintText: '搜索随记…',
+                // 创意 ①-5：搜索框降级为背景层——paperCardAlt 填充 + radius 14，不抢主层
+                filled: true,
+                fillColor: Theme.of(context).brightness == Brightness.dark
+                    ? T.darkCardAlt
+                    : T.paperCardAlt,
+                border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: BorderSide.none,
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide:
+                      const BorderSide(color: T.brandPrimary, width: 1.5),
+                ),
                 prefixIcon: const Icon(Icons.search, size: 20),
                 suffixIcon: _query.isEmpty
                     ? null
@@ -166,11 +181,7 @@ class _HomePageState extends State<HomePage> {
       ),
       floatingActionButton: _multiSelect
           ? null
-          : FloatingActionButton(
-              onPressed: () => QuickCaptureSheet.open(context, db),
-              shape: const CircleBorder(),
-              child: const Icon(Icons.edit_outlined),
-            ),
+          : _DropFab(onPressed: () => QuickCaptureSheet.open(context, db)),
       bottomNavigationBar: _multiSelect
           ? _BatchActionBar(db: db, selected: _selected, onDone: _exitMultiSelect)
           : null,
@@ -734,4 +745,74 @@ class _EmptyState extends StatelessWidget {
       ]),
     );
   }
+}
+
+/// 水滴形 FAB（创意 ①-4）：ClipPath 水滴裁切 + 单层 brandPrimary@35% 投影。
+/// 比普通圆 FAB 更贴品牌——「点一滴水，落一条随记」。
+class _DropFab extends StatelessWidget {
+  final VoidCallback onPressed;
+  const _DropFab({required this.onPressed});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 60,
+      height: 60,
+      decoration: BoxDecoration(
+        boxShadow: [
+          BoxShadow(
+            color: T.brandPrimary.withValues(alpha: 0.35),
+            blurRadius: 12,
+            offset: const Offset(0, 4),
+          ),
+        ],
+      ),
+      child: Material(
+        color: T.brandPrimary,
+        clipBehavior: Clip.antiAlias,
+        shape: const _DropShapeBorder(),
+        child: InkWell(
+          onTap: onPressed,
+          customBorder: const _DropShapeBorder(),
+          child: const Center(
+            child: Padding(
+              padding: EdgeInsets.only(top: 6), // 水滴重心偏下，图标略下移
+              child: Icon(Icons.edit_outlined, color: Colors.white, size: 24),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// 水滴轮廓：顶部尖 + 两侧圆弧 + 底部圆，与 DropBadge 的 _dropPath 同族
+class _DropShapeBorder extends OutlinedBorder {
+  const _DropShapeBorder();
+
+  @override
+  OutlinedBorder copyWith({BorderSide? side}) => const _DropShapeBorder();
+
+  @override
+  Path getInnerPath(Rect rect, {ui.TextDirection? textDirection}) =>
+      getOuterPath(rect, textDirection: textDirection);
+
+  @override
+  Path getOuterPath(Rect rect, {ui.TextDirection? textDirection}) {
+    final w = rect.width;
+    final h = rect.height;
+    return Path()
+      ..moveTo(w * 0.5, 0)
+      ..cubicTo(w * 0.72, h * 0.22, w, h * 0.42, w, h * 0.62)
+      ..cubicTo(w, h * 0.85, w * 0.78, h, w * 0.5, h)
+      ..cubicTo(w * 0.22, h, 0, h * 0.85, 0, h * 0.62)
+      ..cubicTo(0, h * 0.42, w * 0.28, h * 0.22, w * 0.5, 0)
+      ..close();
+  }
+
+  @override
+  void paint(Canvas canvas, Rect rect, {ui.TextDirection? textDirection}) {}
+
+  @override
+  ShapeBorder scale(double t) => const _DropShapeBorder();
 }

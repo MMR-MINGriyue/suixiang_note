@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
+import 'widgets/color_palette.dart';
 
-/// 标签管理页：列表（含使用计数）/ 重命名 / 换色 / 删除
-/// 入口：「我的」页 → 标签管理
+/// 标签管理页：色卡列表（含使用计数）/ 重命名 / 换色 / 删除。
+/// 美化 P2-⑤：32×32 色卡 leading、长按换色 bottomSheet 带实时预览、未使用标签灰化分区。
 class TagManagePage extends StatefulWidget {
   final AppDatabase db;
   const TagManagePage({super.key, required this.db});
@@ -14,11 +15,6 @@ class TagManagePage extends StatefulWidget {
 }
 
 class _TagManagePageState extends State<TagManagePage> {
-  static const _palette = [
-    '#4C6FFF', '#2FBF8F', '#E5484D', '#F5A524', '#8B5CF6',
-    '#06B6D4', '#EC4899', '#84CC16',
-  ];
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -43,43 +39,83 @@ class _TagManagePageState extends State<TagManagePage> {
               ]),
             );
           }
-          return ListView.separated(
+          // 在用标签按计数降序，未使用（计数 0）沉底灰化
+          final used = tags.where((t) => t.count > 0).toList()
+            ..sort((a, b) => b.count.compareTo(a.count));
+          final unused = tags.where((t) => t.count == 0).toList();
+          final items = <Widget>[
+            for (final t in used) _tagTile(t, used: true),
+            if (unused.isNotEmpty) ...[
+              const Padding(
+                padding: EdgeInsets.fromLTRB(4, 16, 4, 8),
+                child: Text('未使用',
+                    style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: T.inkSecondary,
+                        letterSpacing: 0.5)),
+              ),
+              for (final t in unused) _tagTile(t, used: false),
+            ],
+          ];
+          return ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
-            itemCount: tags.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 8),
-            itemBuilder: (context, i) {
-              final item = tags[i];
-              final color = Color(int.parse(item.tag.color.replaceFirst('#', '0xFF')));
-              return Card(
-                child: ListTile(
-                  leading: Icon(Icons.label, color: color),
-                  title: Text(item.tag.name),
-                  subtitle: Text('${item.count} 条随记',
-                      style: const TextStyle(fontSize: 12, color: T.inkTertiary)),
-                  trailing: PopupMenuButton<String>(
-                    onSelected: (v) {
-                      if (v == 'rename') _rename(item.tag);
-                      if (v == 'color') _pickColor(item.tag);
-                      if (v == 'delete') _delete(item.tag);
-                    },
-                    itemBuilder: (_) => const [
-                      PopupMenuItem(value: 'rename', child: ListTile(
-                          leading: Icon(Icons.edit_outlined), title: Text('重命名'),
-                          contentPadding: EdgeInsets.zero)),
-                      PopupMenuItem(value: 'color', child: ListTile(
-                          leading: Icon(Icons.palette_outlined), title: Text('换颜色'),
-                          contentPadding: EdgeInsets.zero)),
-                      PopupMenuItem(value: 'delete', child: ListTile(
-                          leading: Icon(Icons.delete_outline, color: T.danger),
-                          title: Text('删除', style: TextStyle(color: T.danger)),
-                          contentPadding: EdgeInsets.zero)),
-                    ],
-                  ),
-                ),
-              );
-            },
+            children: items,
           );
         },
+      ),
+    );
+  }
+
+  Widget _tagTile(TagWithCount item, {required bool used}) {
+    final color = hexToColor(item.tag.color);
+    return Card(
+      margin: const EdgeInsets.only(bottom: 8),
+      child: ListTile(
+        onLongPress: () => _pickColor(item.tag),
+        leading: used
+            ? Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  color: color.withValues(alpha: 0.14),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(Icons.label, size: 18, color: color),
+              )
+            : Container(
+                width: 32,
+                height: 32,
+                decoration: BoxDecoration(
+                  border: Border.all(color: T.inkTertiary, width: 1.5),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Icon(Icons.label_outline,
+                    size: 18, color: T.inkTertiary),
+              ),
+        title: Text(item.tag.name,
+            style: TextStyle(color: used ? null : T.inkSecondary)),
+        subtitle: Text('${item.count} 条随记',
+            style: const TextStyle(fontSize: 12, color: T.inkTertiary)),
+        trailing: PopupMenuButton<String>(
+          onSelected: (v) {
+            if (v == 'rename') _rename(item.tag);
+            if (v == 'color') _pickColor(item.tag);
+            if (v == 'delete') _delete(item.tag);
+          },
+          itemBuilder: (_) => const [
+            PopupMenuItem(value: 'rename', child: ListTile(
+                leading: Icon(Icons.edit_outlined), title: Text('重命名'),
+                contentPadding: EdgeInsets.zero)),
+            PopupMenuItem(value: 'color', child: ListTile(
+                leading: Icon(Icons.palette_outlined), title: Text('换颜色'),
+                contentPadding: EdgeInsets.zero)),
+            PopupMenuItem(value: 'delete', child: ListTile(
+                leading: Icon(Icons.delete_outline, color: T.danger),
+                title: Text('删除', style: TextStyle(color: T.danger)),
+                contentPadding: EdgeInsets.zero)),
+          ],
+        ),
       ),
     );
   }
@@ -107,38 +143,61 @@ class _TagManagePageState extends State<TagManagePage> {
     }
   }
 
+  /// 换色 bottomSheet：顶部成品 chip 实时预览，点色即改即存（灵感：试珠）
   Future<void> _pickColor(Tag tag) async {
-    final color = await showDialog<String>(
+    var selectedHex = tag.color;
+    await showModalBottomSheet<void>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('选择颜色'),
-        content: Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: _palette
-              .map((hex) => InkWell(
-                    borderRadius: BorderRadius.circular(24),
-                    onTap: () => Navigator.pop(ctx, hex),
-                    child: Container(
-                      width: 40,
-                      height: 40,
-                      decoration: BoxDecoration(
-                        color: Color(int.parse(hex.replaceFirst('#', '0xFF'))),
-                        shape: BoxShape.circle,
-                        border: hex == tag.color
-                            ? Border.all(width: 3, color: T.inkPrimary)
-                            : null,
-                      ),
-                    ),
-                  ))
-              .toList(),
-        ),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-        ],
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(T.rSheet))),
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setSheetState) {
+          final previewColor = hexToColor(selectedHex);
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+              child: Column(mainAxisSize: MainAxisSize.min, children: [
+                // 成品 chip 预览：色点 + 名称 + 色 12% 底
+                Chip(
+                  avatar: Icon(Icons.label, size: 16, color: previewColor),
+                  label: Text(tag.name),
+                  backgroundColor: previewColor.withValues(alpha: 0.12),
+                  side: BorderSide.none,
+                ),
+                const SizedBox(height: 20),
+                Wrap(
+                  spacing: 14,
+                  runSpacing: 14,
+                  children: kPalette
+                      .map((hex) => InkWell(
+                            borderRadius: BorderRadius.circular(24),
+                            onTap: () async {
+                              setSheetState(() => selectedHex = hex);
+                              await widget.db.updateTag(tag.id, color: hex);
+                            },
+                            child: Container(
+                              width: 40,
+                              height: 40,
+                              decoration: BoxDecoration(
+                                color: hexToColor(hex),
+                                shape: BoxShape.circle,
+                                border: hex == selectedHex
+                                    ? Border.all(width: 3, color: T.inkPrimary)
+                                    : null,
+                              ),
+                            ),
+                          ))
+                      .toList(),
+                ),
+                const SizedBox(height: 16),
+                const Text('点选即换色，长按标签行也能快速打开这里',
+                    style: TextStyle(fontSize: 11, color: T.inkTertiary)),
+              ]),
+            ),
+          );
+        },
       ),
     );
-    if (color != null) await widget.db.updateTag(tag.id, color: color);
   }
 
   Future<void> _delete(Tag tag) async {

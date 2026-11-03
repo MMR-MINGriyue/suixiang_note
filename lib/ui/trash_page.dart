@@ -4,7 +4,8 @@ import 'package:intl/intl.dart';
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
 
-/// 回收站：软删随记列表，支持恢复 / 彻底删除 / 清空
+/// 回收站：软删随记列表，支持恢复 / 彻底删除 / 清空。
+/// 美化 P2-⑥：恢复主按钮化、彻底删除收进菜单、删除时长纯陈述（PRD 无自动清除机制）。
 class TrashPage extends StatelessWidget {
   final AppDatabase db;
   const TrashPage({super.key, required this.db});
@@ -36,8 +37,11 @@ class TrashPage extends StatelessWidget {
                   children: [
                     const Icon(Icons.delete_outline, size: 44, color: T.inkTertiary),
                     const SizedBox(height: 12),
-                    Text('回收站是空的',
+                    Text('都处理完了，纸面很干净',
                         style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 4),
+                    const Text('删除的随记会先在这里停留，随时可以恢复',
+                        style: TextStyle(fontSize: 12, color: T.inkTertiary)),
                   ]),
             );
           }
@@ -87,16 +91,33 @@ class _TrashCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final deletedAt = DateTime.fromMillisecondsSinceEpoch(thought.deletedAt ?? 0);
     final timeText = DateFormat('MM/dd HH:mm').format(deletedAt);
+    final days = DateTime.now().difference(deletedAt).inDays;
+    // 删除 30 天以上的行加 warning 描边：滞留最久的对象一眼可辨（纯陈述，无自动清除规则）
+    final stale = days >= 30;
+    final borderColor = Theme.of(context).dividerColor;
     return Card(
+      margin: EdgeInsets.zero,
+      elevation: 0,
+      color: Theme.of(context).colorScheme.surface,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(T.rCard),
+        side: BorderSide(
+            color: stale ? T.warning : borderColor, width: 1),
+      ),
       child: ListTile(
+        contentPadding: const EdgeInsets.fromLTRB(16, 4, 8, 4),
         title: Text(thought.title.isEmpty ? '(无标题)' : thought.title,
             maxLines: 1, overflow: TextOverflow.ellipsis),
-        subtitle: Text('删除于 $timeText',
-            style: const TextStyle(fontSize: 11, color: T.inkTertiary)),
+        subtitle: Text(
+            '删除于 $timeText · 已删除 $days 天',
+            style: TextStyle(
+                fontSize: 11, color: stale ? T.warning : T.inkTertiary)),
         trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-          IconButton(
-            icon: const Icon(Icons.restore, color: T.brandPrimary),
-            tooltip: '恢复',
+          // 恢复为主按钮（tonal），彻底删除收进菜单，避免误触
+          FilledButton.tonal(
+            style: FilledButton.styleFrom(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                minimumSize: const Size(0, 34)),
             onPressed: () async {
               await db.restoreFromTrash(thought.id);
               if (context.mounted) {
@@ -104,11 +125,19 @@ class _TrashCard extends StatelessWidget {
                     .showSnackBar(SnackBar(content: Text('已恢复「${thought.title}」')));
               }
             },
+            child: const Text('恢复', style: TextStyle(fontSize: 13)),
           ),
-          IconButton(
-            icon: const Icon(Icons.delete_forever_outlined, color: T.danger),
-            tooltip: '彻底删除',
-            onPressed: () => _purgeOne(context),
+          PopupMenuButton<String>(
+            tooltip: '更多',
+            onSelected: (v) {
+              if (v == 'purge') _purgeOne(context);
+            },
+            itemBuilder: (_) => const [
+              PopupMenuItem(value: 'purge', child: ListTile(
+                  leading: Icon(Icons.delete_forever_outlined, color: T.danger),
+                  title: Text('彻底删除', style: TextStyle(color: T.danger)),
+                  contentPadding: EdgeInsets.zero)),
+            ],
           ),
         ]),
       ),
