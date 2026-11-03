@@ -17,24 +17,31 @@ Future<void> main() async {
     'dark' => ThemeMode.dark,
     _ => ThemeMode.system,
   };
-  runApp(SuixiangApp(themeMode: themeMode));
+  themeModeNotifier.value = themeMode;
+  runApp(SuixiangApp(initialThemeMode: themeMode));
 }
 
 /// 全局单例 db（单进程本地 App，无需依赖注入框架）
 final appDb = AppDatabase();
 
+/// 全局主题状态（ValueNotifier 让「我的」页切主题免重启即时生效）
+final themeModeNotifier = ValueNotifier<ThemeMode>(ThemeMode.system);
+
 class SuixiangApp extends StatelessWidget {
-  final ThemeMode themeMode;
-  const SuixiangApp({super.key, required this.themeMode});
+  final ThemeMode initialThemeMode;
+  const SuixiangApp({super.key, required this.initialThemeMode});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: '随想随记',
-      theme: buildLightTheme(),
-      darkTheme: buildDarkTheme(),
-      themeMode: themeMode,
-      home: const AppShell(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeModeNotifier,
+      builder: (context, mode, child) => MaterialApp(
+        title: '随想随记',
+        theme: buildLightTheme(),
+        darkTheme: buildDarkTheme(),
+        themeMode: mode,
+        home: const AppShell(),
+      ),
     );
   }
 }
@@ -71,4 +78,3 @@ class _AppShellState extends State<AppShell> {
     );
   }
 }
-

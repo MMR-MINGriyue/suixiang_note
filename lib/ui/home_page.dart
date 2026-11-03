@@ -1,44 +1,138 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
 import 'quick_capture_sheet.dart';
+import 'detail_page.dart';
+import 'trash_page.dart';
 
-/// 首页「灵感流」：置顶优先，单击水滴切三态（主线 C：1 次点击推进）
-class HomePage extends StatelessWidget {
+/// 首页「灵感流」：搜索栏 + 置顶优先列表；单击水滴切三态（主线 C：1 次点击推进）
+class HomePage extends StatefulWidget {
   final AppDatabase db;
   const HomePage({super.key, required this.db});
 
   @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  String _query = '';
+  Timer? _debounce;
+  final _searchCtrl = TextEditingController();
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchCtrl.dispose();
+    super.dispose();
+  }
+
+  void _onSearchChanged(String v) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      if (mounted) setState(() => _query = v.trim());
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final db = widget.db;
     final theme = Theme.of(context);
     return Scaffold(
       appBar: AppBar(
         title: const Text('随想'),
         backgroundColor: Colors.transparent,
-        titleTextStyle: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+        titleTextStyle:
+            theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+        actions: [
+          // 回收站入口（软删数据不再只有「清空」一条路）
+          IconButton(
+            icon: const Icon(Icons.delete_outline),
+            tooltip: '回收站',
+            onPressed: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => TrashPage(db: db))),
+          ),
+        ],
       ),
-      body: StreamBuilder<List<Thought>>(
-        stream: db.watchList(),
-        builder: (context, snap) {
-          if (!snap.hasData) return const Center(child: CircularProgressIndicator());
-          final list = snap.data!;
-          if (list.isEmpty) return const _EmptyState();
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(T.pagePad, 8, T.pagePad, 96),
-            itemCount: list.length,
-            separatorBuilder: (_, _) => const SizedBox(height: 10),
-            itemBuilder: (context, i) =>
-                _NoteCard(db: db, thought: list[i], stagesStream: db.watchStages()),
-          );
-        },
+      body: Column(
+        children: [
+          // 搜索栏（300ms 防抖 LIKE 查询，标题+内容）
+          Padding(
+            padding: const EdgeInsets.fromLTRB(T.pagePad, 4, T.pagePad, 8),
+            child: TextField(
+              controller: _searchCtrl,
+              onChanged: _onSearchChanged,
+              decoration: InputDecoration(
+                isDense: true,
+                hintText: '搜索随记…',
+                prefixIcon: const Icon(Icons.search, size: 20),
+                suffixIcon: _query.isEmpty
+                    ? null
+                    : IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        onPressed: () {
+                          _searchCtrl.clear();
+                          setState(() => _query = '');
+                        },
+                      ),
+                contentPadding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              ),
+            ),
+          ),
+          Expanded(
+            child: StreamBuilder<List<Thought>>(
+              stream: db.watchList(query: _query.isEmpty ? null : _query),
+              builder: (context, snap) {
+                if (!snap.hasData) {
+                  return const Center(child: CircularProgressIndicator());
+                }
+                final list = snap.data!;
+                if (list.isEmpty) {
+                  return _query.isEmpty
+                      ? const _EmptyState()
+                      : _SearchEmpty(query: _query);
+                }
+                return ListView.separated(
+                  padding:
+                      const EdgeInsets.fromLTRB(T.pagePad, 8, T.pagePad, 96),
+                  itemCount: list.length,
+                  separatorBuilder: (_, _) => const SizedBox(height: 10),
+                  itemBuilder: (context, i) => _NoteCard(
+                      db: db,
+                      thought: list[i],
+                      stagesStream: db.watchStages()),
+                );
+              },
+            ),
+          ),
+        ],
       ),
       floatingActionButton: FloatingActionButton(
         onPressed: () => QuickCaptureSheet.open(context, db),
         shape: const CircleBorder(),
         child: const Icon(Icons.edit_outlined),
       ),
+    );
+  }
+}
+
+/// 搜索无结果空态
+class _SearchEmpty extends StatelessWidget {
+  final String query;
+  const _SearchEmpty({required this.query});
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
+        const Icon(Icons.search_off, size: 44, color: T.inkTertiary),
+        const SizedBox(height: 12),
+        Text('没有包含「$query」的随记', style: Theme.of(context).textTheme.titleMedium),
+      ]),
     );
   }
 }
@@ -62,6 +156,11 @@ class _NoteCard extends StatelessWidget {
     return Card(
       child: InkWell(
         borderRadius: BorderRadius.circular(T.rCard),
+        onTap: () => Navigator.push(
+            context,
+            MaterialPageRoute(
+                builder: (_) =>
+                    DetailPage(db: db, thought: thought))),
         onLongPress: () => _showActions(context),
         child: Padding(
           padding: const EdgeInsets.all(14),

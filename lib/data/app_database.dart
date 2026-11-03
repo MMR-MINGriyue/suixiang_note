@@ -65,15 +65,51 @@ class AppDatabase extends _$AppDatabase {
   // ═══════════════ 随记：列表与捕捉（M2 闭环的数据面） ═══════════════
 
   /// 主列表流：置顶优先，组内按更新时间倒序；软删与归档恒排除
-  Stream<List<Thought>> watchList({bool archived = false}) {
+  /// [query] 非空时做 LIKE 搜索（标题+内容，v1.0 降级方案 —— PM 评审结论）
+  Stream<List<Thought>> watchList({bool archived = false, String? query}) {
     return (select(thoughts)
-          ..where((t) => t.deletedAt.isNull() & t.isArchived.equals(archived))
+          ..where((t) {
+            var expr = t.deletedAt.isNull() & t.isArchived.equals(archived);
+            final q = query?.trim();
+            if (q != null && q.isNotEmpty) {
+              expr = expr &
+                  (t.title.like('%$q%') | t.content.like('%$q%'));
+            }
+            return expr;
+          })
           ..orderBy([
             (t) => OrderingTerm.desc(t.isPinned),
             (t) => OrderingTerm.desc(t.pinnedAt),
             (t) => OrderingTerm.desc(t.updatedAt),
           ]))
         .watch();
+  }
+
+  /// 回收站流：软删随记，按删除时间倒序
+  Stream<List<Thought>> watchTrash() {
+    return (select(thoughts)
+          ..where((t) => t.deletedAt.isNotNull())
+          ..orderBy([(t) => OrderingTerm.desc(t.deletedAt)]))
+        .watch();
+  }
+
+  /// 从回收站恢复（清除软删标记）
+  Future<void> restoreFromTrash(int thoughtId) async {
+    await (update(thoughts)..where((t) => t.id.equals(thoughtId)))
+        .write(const ThoughtsCompanion(deletedAt: Value(null)));
+  }
+
+  /// 彻底删除单条（回收站内）
+  Future<void> purgeThought(int thoughtId) {
+    return (delete(thoughts)..where((t) => t.id.equals(thoughtId))).go();
+  }
+
+  /// 移动随记到文件夹（null = 移出/收件箱）
+  Future<void> moveToFolder(int thoughtId, int? folderId) async {
+    await (update(thoughts)..where((t) => t.id.equals(thoughtId)))
+        .write(ThoughtsCompanion(
+            folderId: Value(folderId),
+            updatedAt: Value(DateTime.now().millisecondsSinceEpoch)));
   }
 
   /// 阶段全表（按 position 升序）

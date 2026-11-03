@@ -1,0 +1,215 @@
+import 'dart:async';
+
+import 'package:flutter/material.dart';
+
+import '../data/app_database.dart';
+import '../theme/tokens.dart';
+
+/// 详情/编辑页：复用速记的自动落库逻辑（500ms 防抖），增加文件夹归属切换
+/// 打开方式：Navigator.push 全屏页（区别于速记的模态弹层）
+class DetailPage extends StatefulWidget {
+  final AppDatabase db;
+  final Thought thought;
+  const DetailPage({super.key, required this.db, required this.thought});
+
+  @override
+  State<DetailPage> createState() => _DetailPageState();
+}
+
+class _DetailPageState extends State<DetailPage> {
+  late final TextEditingController _controller;
+  Timer? _debounce;
+  int _wordCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.thought.content);
+    _wordCount =
+        widget.thought.content.replaceAll(RegExp(r'\s'), '').length;
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onChanged(String text) {
+    setState(() => _wordCount = text.replaceAll(RegExp(r'\s'), '').length);
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      widget.db.saveDraft(id: widget.thought.id, content: text);
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final db = widget.db;
+    return Scaffold(
+      appBar: AppBar(
+        title: StreamBuilder<List<Stage>>(
+          stream: db.watchStages(),
+          builder: (context, sSnap) {
+            final stages = sSnap.data ?? const <Stage>[];
+            Stage stage;
+            try {
+              stage = stages
+                  .firstWhere((s) => s.id == widget.thought.stageId);
+            } on StateError {
+              stage = stages.isNotEmpty
+                  ? stages.first
+                  : Stage(
+                      id: 1,
+                      name: '灵感',
+                      kind: 'inspiration',
+                      color: '#A8B9E6',
+                      position: 1.0,
+                      isSystem: true,
+                      createdAt: 0);
+            }
+            return InkWell(
+              borderRadius: BorderRadius.circular(8),
+              onTap: () async {
+                await db.advanceStage(widget.thought.id);
+                if (context.mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                      content: Text('已推进到「${_nextStageName(stages, stage)}」'),
+                      duration: const Duration(seconds: 1)));
+                }
+              },
+              child: Padding(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Icon(Icons.water_drop,
+                      size: 16,
+                      color: Color(int.parse(
+                          stage.color.replaceFirst('#', '0xFF')))),
+                  const SizedBox(width: 6),
+                  Text(stage.name,
+                      style: const TextStyle(fontSize: 14)),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.sync_alt, size: 14, color: T.inkSecondary),
+                ]),
+              ),
+            );
+          },
+        ),
+        actions: [
+          // 文件夹归属切换
+          IconButton(
+            icon: const Icon(Icons.folder_open_outlined),
+            tooltip: '移动到文件夹',
+            onPressed: () => _pickFolder(context),
+          ),
+          IconButton(
+            icon: const Icon(Icons.delete_outline, color: T.danger),
+            tooltip: '删除',
+            onPressed: () => _delete(context),
+          ),
+        ],
+      ),
+      body: Column(
+        children: [
+          Expanded(
+            child: TextField(
+              controller: _controller,
+              onChanged: _onChanged,
+              maxLines: null,
+              expands: true,
+              textAlignVertical: TextAlignVertical.top,
+              decoration: const InputDecoration(
+                hintText: '想到什么写什么…',
+                contentPadding:
+                    EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                border: InputBorder.none,
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Row(children: [
+              Text('$_wordCount 字',
+                  style:
+                      const TextStyle(fontSize: 11, color: T.inkTertiary)),
+              const Spacer(),
+              const Text('自动保存',
+                  style: TextStyle(fontSize: 11, color: T.inkTertiary)),
+            ]),
+          ),
+        ],
+      ),
+    );
+  }
+
+  String _nextStageName(List<Stage> stages, Stage current) {
+    if (stages.isEmpty) return '';
+    final idx = stages.indexWhere((s) => s.id == current.id);
+    return stages[(idx + 1) % stages.length].name;
+  }
+
+  Future<void> _pickFolder(BuildContext context) async {
+    final folders = await widget.db
+        .watchFoldersWithCount()
+        .first; // 一次性取当前快照
+    if (!context.mounted) return;
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: const Text('移动到'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, 0), // 0 = 收件箱
+            child: const ListTile(
+              leading: Icon(Icons.inbox_outlined),
+              title: Text('收件箱（不归文件夹）'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          ...folders
+              .where((f) => f.folder.deletedAt == null)
+              .map((f) => SimpleDialogOption(
+                    onPressed: () => Navigator.pop(ctx, f.folder.id),
+                    child: ListTile(
+                      leading: const Icon(Icons.folder_outlined),
+                      title: Text(f.folder.name),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  )),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    await widget.db.moveToFolder(widget.thought.id, picked == 0 ? null : picked);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('已移动'),
+          duration: Duration(seconds: 1)));
+    }
+  }
+
+  Future<void> _delete(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('删除随记'),
+        content: const Text('将移入回收站，可在回收站恢复。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: T.danger),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok == true) {
+      await widget.db.saveDraft(id: widget.thought.id, content: _controller.text); // 先落最后草稿
+      await widget.db.softDelete(widget.thought.id);
+      if (context.mounted) Navigator.pop(context);
+    }
+  }
+}

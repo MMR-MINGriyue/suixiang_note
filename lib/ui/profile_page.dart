@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/backup_service.dart';
-import '../main.dart' show appDb;
+import '../main.dart' show appDb, themeModeNotifier;
 import '../theme/tokens.dart';
 
 /// Tab 2 我的（M6 设置闭环，v1.0 按 PM 评审「9 行」收敛版）：
@@ -34,12 +34,12 @@ class _ProfilePageState extends State<ProfilePage> {
     await p.setString('theme_mode', mode);
     if (!mounted) return;
     setState(() => _themeMode = mode);
-    // v1.0 简化：提示重启生效（M6 后期接 MaterialApp 状态提升/ValueNotifier 热切换）
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('主题已保存，重启应用后生效'), duration: Duration(seconds: 2)),
-      );
-    }
+    // 主题热切换：ValueNotifier 驱动 MaterialApp 即时生效，无需重启
+    themeModeNotifier.value = switch (mode) {
+      'light' => ThemeMode.light,
+      'dark' => ThemeMode.dark,
+      _ => ThemeMode.system,
+    };
   }
 
   Future<void> _backupNow() async {
