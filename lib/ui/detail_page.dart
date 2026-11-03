@@ -98,6 +98,12 @@ class _DetailPageState extends State<DetailPage> {
           },
         ),
         actions: [
+          // 标签编辑
+          IconButton(
+            icon: const Icon(Icons.label_outline),
+            tooltip: '标签',
+            onPressed: () => _editTags(context),
+          ),
           // 文件夹归属切换
           IconButton(
             icon: const Icon(Icons.folder_open_outlined),
@@ -148,6 +154,32 @@ class _DetailPageState extends State<DetailPage> {
     if (stages.isEmpty) return '';
     final idx = stages.indexWhere((s) => s.id == current.id);
     return stages[(idx + 1) % stages.length].name;
+  }
+
+  /// 标签编辑面板：勾选已有标签 + 内联新建，确认后替换式写回
+  Future<void> _editTags(BuildContext context) async {
+    final allTags = await widget.db.watchTags().first;
+    final current = await widget.db.watchTagsOfThought(widget.thought.id).first;
+    final selected = current.map((t) => t.id).toSet();
+    if (!context.mounted) return;
+    final ok = await showModalBottomSheet<bool>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(T.rSheet))),
+      builder: (ctx) => _TagPickerSheet(
+        db: widget.db,
+        allTags: allTags,
+        selected: selected,
+      ),
+    );
+    if (ok == true) {
+      await widget.db.setThoughtTags(widget.thought.id, selected.toList());
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('标签已更新'), duration: Duration(seconds: 1)));
+      }
+    }
   }
 
   Future<void> _pickFolder(BuildContext context) async {
@@ -211,5 +243,113 @@ class _DetailPageState extends State<DetailPage> {
       await widget.db.softDelete(widget.thought.id);
       if (context.mounted) Navigator.pop(context);
     }
+  }
+}
+
+/// 标签选择半屏面板：FilterChip 多选 + 新建标签输入行
+class _TagPickerSheet extends StatefulWidget {
+  final AppDatabase db;
+  final List<Tag> allTags;
+  final Set<int> selected;
+  const _TagPickerSheet(
+      {required this.db, required this.allTags, required this.selected});
+
+  @override
+  State<_TagPickerSheet> createState() => _TagPickerSheetState();
+}
+
+class _TagPickerSheetState extends State<_TagPickerSheet> {
+  late List<Tag> _tags;
+  late Set<int> _selected;
+  final _newCtrl = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    _tags = List.of(widget.allTags);
+    _selected = Set.of(widget.selected);
+  }
+
+  @override
+  void dispose() {
+    _newCtrl.dispose();
+    super.dispose();
+  }
+
+  Color _tagColor(Tag t) => Color(int.parse(t.color.replaceFirst('#', '0xFF')));
+
+  Future<void> _createTag() async {
+    final name = _newCtrl.text.trim();
+    if (name.isEmpty) return;
+    final tag = await widget.db.createTag(name);
+    if (tag != null && !mounted) return;
+    setState(() {
+      if (!_tags.any((t) => t.id == tag!.id)) _tags.add(tag!);
+      _selected.add(tag!.id);
+      _newCtrl.clear();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+            20, 20, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text('选择标签', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 16),
+          if (_tags.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 12),
+              child: Text('还没有标签，在下面输入名字创建第一个',
+                  style: TextStyle(color: T.inkSecondary, fontSize: 13)),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _tags
+                  .map((t) => FilterChip(
+                        label: Text(t.name),
+                        selected: _selected.contains(t.id),
+                        avatar: Icon(Icons.label, size: 16, color: _tagColor(t)),
+                        onSelected: (on) =>
+                            setState(() => on ? _selected.add(t.id) : _selected.remove(t.id)),
+                      ))
+                  .toList(),
+            ),
+          const SizedBox(height: 20),
+          Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _newCtrl,
+                maxLength: 20,
+                decoration: const InputDecoration(
+                  hintText: '新建标签（≤20 字）',
+                  isDense: true,
+                  border: OutlineInputBorder(),
+                ),
+                onSubmitted: (_) => _createTag(),
+              ),
+            ),
+            const SizedBox(width: 8),
+            FilledButton.icon(
+              onPressed: _createTag,
+              icon: const Icon(Icons.add, size: 18),
+              label: const Text('新建'),
+            ),
+          ]),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () => Navigator.pop(context, true),
+              child: Text('完成（已选 ${_selected.length} 个）'),
+            ),
+          ),
+        ]),
+      ),
+    );
   }
 }

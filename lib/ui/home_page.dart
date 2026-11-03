@@ -20,6 +20,7 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   String _query = '';
+  int? _tagFilter; // 当前标签过滤（null=全部）
   Timer? _debounce;
   final _searchCtrl = TextEditingController();
 
@@ -83,31 +84,45 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           ),
-          Expanded(
-            child: StreamBuilder<List<Thought>>(
-              stream: db.watchList(query: _query.isEmpty ? null : _query),
-              builder: (context, snap) {
-                if (!snap.hasData) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final list = snap.data!;
-                if (list.isEmpty) {
-                  return _query.isEmpty
-                      ? const _EmptyState()
-                      : _SearchEmpty(query: _query);
-                }
-                return ListView.separated(
-                  padding:
-                      const EdgeInsets.fromLTRB(T.pagePad, 8, T.pagePad, 96),
-                  itemCount: list.length,
-                  separatorBuilder: (_, _) => const SizedBox(height: 10),
-                  itemBuilder: (context, i) => _NoteCard(
-                      db: db,
-                      thought: list[i],
-                      stagesStream: db.watchStages()),
+          // 标签过滤行：横滚 chip，点选过滤；再点取消
+          SizedBox(
+            height: 40,
+            child: StreamBuilder<List<Tag>>(
+              stream: db.watchTags(),
+              builder: (context, tagSnap) {
+                final tags = tagSnap.data ?? const <Tag>[];
+                if (tags.isEmpty) return const SizedBox.shrink();
+                return ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: T.pagePad),
+                  children: tags
+                      .map((t) => Padding(
+                            padding: const EdgeInsets.only(right: 8),
+                            child: ChoiceChip(
+                              label: Text(t.name, style: const TextStyle(fontSize: 12)),
+                              selected: _tagFilter == t.id,
+                              avatar: Icon(Icons.label, size: 14,
+                                  color: Color(int.parse(t.color.replaceFirst('#', '0xFF')))),
+                              onSelected: (on) =>
+                                  setState(() => _tagFilter = on ? t.id : null),
+                            ),
+                          ))
+                      .toList(),
                 );
               },
             ),
+          ),
+          Expanded(
+            child: _tagFilter != null
+                ? StreamBuilder<List<Thought>>(
+                    stream: db.watchThoughtsByTag(_tagFilter!),
+                    builder: (context, snap) =>
+                        _buildList(context, db, snap, searchInactive: true),
+                  )
+                : StreamBuilder<List<Thought>>(
+                    stream: db.watchList(query: _query.isEmpty ? null : _query),
+                    builder: (context, snap) => _buildList(context, db, snap),
+                  ),
           ),
         ],
       ),
@@ -116,6 +131,29 @@ class _HomePageState extends State<HomePage> {
         shape: const CircleBorder(),
         child: const Icon(Icons.edit_outlined),
       ),
+    );
+  }
+
+  Widget _buildList(BuildContext context, AppDatabase db,
+      AsyncSnapshot<List<Thought>> snap,
+      {bool searchInactive = false}) {
+    if (!snap.hasData) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final list = snap.data!;
+    if (list.isEmpty) {
+      return searchInactive
+          ? const _EmptyState()
+          : _SearchEmpty(query: _query);
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(T.pagePad, 8, T.pagePad, 96),
+      itemCount: list.length,
+      separatorBuilder: (_, _) => const SizedBox(height: 10),
+      itemBuilder: (context, i) => _NoteCard(
+          db: db,
+          thought: list[i],
+          stagesStream: db.watchStages()),
     );
   }
 }
@@ -224,6 +262,38 @@ class _NoteCard extends StatelessWidget {
                               ?.copyWith(color: T.inkSecondary)),
                     ],
                     const SizedBox(height: 6),
+                    // 标签 chips（有标签才显示）
+                    StreamBuilder<List<Tag>>(
+                      stream: db.watchTagsOfThought(thought.id),
+                      builder: (context, tSnap) {
+                        final noteTags = tSnap.data ?? const <Tag>[];
+                        if (noteTags.isEmpty) return const SizedBox.shrink();
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: 6),
+                          child: Wrap(
+                            spacing: 6,
+                            runSpacing: 4,
+                            children: noteTags
+                                .map((t) => Container(
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 8, vertical: 2),
+                                      decoration: BoxDecoration(
+                                        color: Color(int.parse(
+                                                t.color.replaceFirst('#', '0xFF')))
+                                            .withValues(alpha: 0.12),
+                                        borderRadius: BorderRadius.circular(999),
+                                      ),
+                                      child: Text(t.name,
+                                          style: TextStyle(
+                                              fontSize: 10,
+                                              color: Color(int.parse(t.color
+                                                  .replaceFirst('#', '0xFF'))))),
+                                    ))
+                                .toList(),
+                          ),
+                        );
+                      },
+                    ),
                     Text(timeText, style: const TextStyle(fontSize: 11, color: T.inkTertiary)),
                   ],
                 ),

@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import '../data/backup_service.dart';
 import '../main.dart' show appDb, themeModeNotifier;
 import '../theme/tokens.dart';
+import 'tag_manage_page.dart';
 
 /// Tab 2 我的（M6 设置闭环，v1.0 按 PM 评审「9 行」收敛版）：
 /// 外观（深色模式）· 记录偏好（列表排序/触感）· 数据（备份/恢复/清空回收站）· 关于
@@ -180,6 +181,17 @@ class _ProfilePageState extends State<ProfilePage> {
                   title: const Text('深色'),
                 ),
               ]),
+            ),
+          ),
+          _SectionHeader('整理'),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.label_outline, color: T.brandPrimary),
+              title: const Text('标签管理'),
+              subtitle: const Text('查看、重命名、换色、删除标签'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => TagManagePage(db: appDb))),
             ),
           ),
           _SectionHeader('数据'),

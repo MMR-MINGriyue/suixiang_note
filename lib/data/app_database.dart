@@ -215,6 +215,98 @@ class AppDatabase extends _$AppDatabase {
         .write(FoldersCompanion(deletedAt: Value(now)));
   }
 
+  // ═══════════════ 标签（v1.2：多对多打标 + 过滤 + 管理） ═══════════════
+
+  /// 标签流（未软删，按 sortWeight 升序）
+  Stream<List<Tag>> watchTags() {
+    return (select(tags)
+          ..where((t) => t.deletedAt.isNull())
+          ..orderBy([(t) => OrderingTerm.asc(t.sortWeight), (t) => OrderingTerm.asc(t.id)]))
+        .watch();
+  }
+
+  /// 标签 + 使用中的随记计数（管理页/过滤行展示）
+  Stream<List<TagWithCount>> watchTagsWithCount() {
+    final countExp = thoughts.id.count();
+    final query = select(tags).join([
+      leftOuterJoin(thoughtTags, thoughtTags.tagId.equalsExp(tags.id)),
+      leftOuterJoin(thoughts,
+          thoughts.id.equalsExp(thoughtTags.thoughtId) & thoughts.deletedAt.isNull()),
+    ])
+      ..addColumns([countExp])
+      ..groupBy([tags.id]);
+    return query.watch().map((rows) => rows
+        .map((r) => TagWithCount(r.readTable(tags), r.read(countExp)!))
+        .toList());
+  }
+
+  /// 新建标签（重名 NOCASE 拦截，返回 null=重名）
+  Future<Tag?> createTag(String name, {String? color}) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty || trimmed.length > 20) return null;
+    final dup = await (select(tags)
+          ..where((t) => t.name.lower().equals(trimmed.toLowerCase()) & t.deletedAt.isNull()))
+        .getSingleOrNull();
+    if (dup != null) return dup; // 幂等：返回已有标签
+    final id = await into(tags).insert(TagsCompanion.insert(
+        name: trimmed,
+        color: Value(color ?? '#4C6FFF'),
+        createdAt: DateTime.now().millisecondsSinceEpoch));
+    return (select(tags)..where((t) => t.id.equals(id))).getSingle();
+  }
+
+  /// 重命名/换色（管理页）
+  Future<void> updateTag(int tagId, {String? name, String? color}) async {
+    await (update(tags)..where((t) => t.id.equals(tagId)))
+        .write(TagsCompanion(name: name == null ? const Value.absent() : Value(name.trim()), color: color == null ? const Value.absent() : Value(color)));
+  }
+
+  /// 删标签：软删 + 清掉随记关联（PRD：删除标签不影响随记本身）
+  Future<void> deleteTag(int tagId) async {
+    await (delete(thoughtTags)..where((tt) => tt.tagId.equals(tagId))).go();
+    await (update(tags)..where((t) => t.id.equals(tagId)))
+        .write(TagsCompanion(deletedAt: Value(DateTime.now().millisecondsSinceEpoch)));
+  }
+
+  /// 替换式设置某随记的标签集合（详情页 chip 编辑）
+  Future<void> setThoughtTags(int thoughtId, List<int> tagIds) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await transaction(() async {
+      await (delete(thoughtTags)..where((tt) => tt.thoughtId.equals(thoughtId))).go();
+      for (final tagId in tagIds) {
+        await into(thoughtTags).insert(
+            ThoughtTagsCompanion.insert(thoughtId: thoughtId, tagId: tagId, createdAt: now),
+            mode: InsertMode.insertOrIgnore);
+      }
+      await (update(thoughts)..where((t) => t.id.equals(thoughtId)))
+          .write(ThoughtsCompanion(updatedAt: Value(now)));
+    });
+  }
+
+  /// 某随记当前的标签集合流（详情页展示）
+  Stream<List<Tag>> watchTagsOfThought(int thoughtId) {
+    final query = select(tags).join([
+      innerJoin(thoughtTags, thoughtTags.tagId.equalsExp(tags.id)),
+    ])
+      ..where(thoughtTags.thoughtId.equals(thoughtId) & tags.deletedAt.isNull())
+      ..orderBy([OrderingTerm.asc(tags.id)]);
+    return query.watch().map((rows) => rows.map((r) => r.readTable(tags)).toList());
+  }
+
+  /// watchList 的标签过滤：传 tagId 时仅显示打了该标签的随记
+  Stream<List<Thought>> watchThoughtsByTag(int tagId) {
+    final query = select(thoughts).join([
+      innerJoin(thoughtTags, thoughtTags.thoughtId.equalsExp(thoughts.id)),
+    ])
+      ..where(thoughtTags.tagId.equals(tagId) &
+          thoughts.deletedAt.isNull() &
+          thoughts.isArchived.equals(false))
+      ..orderBy([
+        OrderingTerm.desc(thoughts.isPinned),
+        OrderingTerm.desc(thoughts.updatedAt),
+      ]);
+    return query.watch().map((rows) => rows.map((r) => r.readTable(thoughts)).toList());
+  }
   // ═══════════════ 设置 KV ═══════════════
 
   /// 清空回收站：物理删除已软删随记
@@ -237,4 +329,10 @@ class FolderWithCount {
   final Folder folder;
   final int count;
   FolderWithCount(this.folder, this.count);
+}
+
+class TagWithCount {
+  final Tag tag;
+  final int count;
+  TagWithCount(this.tag, this.count);
 }
