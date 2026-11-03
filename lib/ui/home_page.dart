@@ -8,6 +8,7 @@ import '../theme/tokens.dart';
 import 'quick_capture_sheet.dart';
 import 'detail_page.dart';
 import 'trash_page.dart';
+import 'widgets/drop_badge.dart';
 
 /// 首页「灵感流」：搜索栏 + 置顶优先列表；单击水滴切三态（主线 C：1 次点击推进）
 class HomePage extends StatefulWidget {
@@ -254,17 +255,32 @@ class _NoteCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
     final preview = thought.content.replaceAll('\n', ' ');
     final previewText = preview.length > 60 ? preview.substring(0, 60) : preview;
     final timeText = DateFormat('MM/dd HH:mm')
         .format(DateTime.fromMillisecondsSinceEpoch(thought.updatedAt));
 
+    // 置顶卡用品牌微色底拉开层级（创意 ①-3：色差代替加重投影）
+    final pinnedBg = thought.isPinned
+        ? (isDark ? T.brandContainer : T.brandContainer.withValues(alpha: 0.45))
+        : (isDark ? T.darkCard : T.paperCard);
+
     return Card(
+      elevation: 0,
+      color: pinnedBg,
+      // 性能守则：每卡最多单层浅投影（T.shadowCard）
+      shadowColor: Colors.transparent,
       shape: selected
           ? RoundedRectangleBorder(
               borderRadius: BorderRadius.circular(T.rCard),
               side: const BorderSide(color: T.brandPrimary, width: 2))
-          : null,
+          : RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(T.rCard),
+              side: BorderSide(
+                  color: isDark
+                      ? Colors.white.withValues(alpha: 0.06)
+                      : Colors.black.withValues(alpha: 0.05))),
       child: InkWell(
         borderRadius: BorderRadius.circular(T.rCard),
         onTap: multiSelect
@@ -278,115 +294,167 @@ class _NoteCard extends StatelessWidget {
             multiSelect ? onToggleSelect : _showActions(context),
         child: Padding(
           padding: const EdgeInsets.all(14),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              if (multiSelect) ...[
-                Icon(
-                  selected
-                      ? Icons.check_circle
-                      : Icons.radio_button_unchecked,
-                  size: 24,
-                  color: selected ? T.brandPrimary : T.inkTertiary,
-                ),
-                const SizedBox(width: 12),
-              ] else ...[
-              // 水滴三态徽章（点击推进）
-              StreamBuilder<List<Stage>>(
-                stream: stagesStream,
-                builder: (context, sSnap) {
-                  final stages = sSnap.data ?? const <Stage>[];
-                  Stage stage;
-                  try {
-                    stage = stages.firstWhere((s) => s.id == thought.stageId);
-                  } on StateError {
-                    stage = Stage(
-                        id: 1,
-                        name: '灵感',
-                        kind: 'inspiration',
-                        color: '#A8B9E6',
-                        position: 1.0,
-                        isSystem: true,
-                        createdAt: 0);
-                  }
-                  return InkWell(
-                    borderRadius: BorderRadius.circular(12),
-                    onTap: () => db.advanceStage(thought.id),
-                    child: Tooltip(
-                      message: '${stage.name} · 点击推进',
-                      child: _DropBadge(
-                        kind: stage.kind,
-                        color: Color(int.parse(stage.color.replaceFirst('#', '0xFF'))),
-                      ),
-                    ),
-                  );
-                },
-              ),
-              const SizedBox(width: 12),
-              ],
-              Expanded(
-                child: Column(
+          child: multiSelect
+              ? Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(children: [
-                      if (thought.isPinned) ...[
-                        const Icon(Icons.push_pin, size: 12, color: T.stageInProgress),
-                        const SizedBox(width: 4),
-                      ],
-                      Expanded(
-                        child: Text(thought.title.isEmpty ? '(无标题)' : thought.title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.titleSmall),
+                    Icon(
+                      selected
+                          ? Icons.check_circle
+                          : Icons.radio_button_unchecked,
+                      size: 24,
+                      color: selected ? T.brandPrimary : T.inkTertiary,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              if (thought.isPinned) ...[
+                                const Icon(Icons.push_pin,
+                                    size: 12, color: T.stageInProgress),
+                                const SizedBox(width: 4),
+                              ],
+                              Expanded(
+                                child: Text(
+                                    thought.title.isEmpty
+                                        ? '(无标题)'
+                                        : thought.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.titleSmall),
+                              ),
+                              const SizedBox(width: 8),
+                              Text(timeText,
+                                  style: const TextStyle(
+                                      fontSize: 11, color: T.inkTertiary)),
+                            ],
+                          ),
+                          if (previewText.isNotEmpty) ...[
+                            const SizedBox(height: 4),
+                            Text(previewText,
+                                maxLines: 2,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.bodySmall
+                                    ?.copyWith(color: T.inkSecondary)),
+                          ],
+                        ],
                       ),
-                    ]),
+                    ),
+                  ],
+                )
+              : Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // 层级一：标题行 + 右上时间（创意 ①-2 构图）
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (thought.isPinned) ...[
+                          const Icon(Icons.push_pin,
+                              size: 12, color: T.stageInProgress),
+                          const SizedBox(width: 4),
+                        ],
+                        Expanded(
+                          child: Text(
+                              thought.title.isEmpty
+                                  ? '(无标题)'
+                                  : thought.title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleSmall),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(timeText,
+                            style: const TextStyle(
+                                fontSize: 11, color: T.inkTertiary)),
+                      ],
+                    ),
                     if (previewText.isNotEmpty) ...[
                       const SizedBox(height: 4),
+                      // 层级二：预览文字（置顶卡加深一档，创意 ①-3）
                       Text(previewText,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: T.inkSecondary)),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: thought.isPinned
+                                  ? (isDark
+                                      ? T.inkSecondary
+                                      : T.inkPrimary.withValues(alpha: 0.75))
+                                  : T.inkSecondary)),
                     ],
-                    const SizedBox(height: 6),
-                    // 标签 chips（有标签才显示）
-                    StreamBuilder<List<Tag>>(
-                      stream: db.watchTagsOfThought(thought.id),
-                      builder: (context, tSnap) {
-                        final noteTags = tSnap.data ?? const <Tag>[];
-                        if (noteTags.isEmpty) return const SizedBox.shrink();
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 6),
-                          child: Wrap(
-                            spacing: 6,
-                            runSpacing: 4,
-                            children: noteTags
-                                .map((t) => Container(
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 8, vertical: 2),
-                                      decoration: BoxDecoration(
-                                        color: Color(int.parse(
-                                                t.color.replaceFirst('#', '0xFF')))
-                                            .withValues(alpha: 0.12),
-                                        borderRadius: BorderRadius.circular(999),
-                                      ),
-                                      child: Text(t.name,
-                                          style: TextStyle(
-                                              fontSize: 10,
-                                              color: Color(int.parse(t.color
-                                                  .replaceFirst('#', '0xFF'))))),
-                                    ))
-                                .toList(),
+                    const SizedBox(height: 8),
+                    // 层级三：标签 chips + 左下水滴徽章
+                    Row(
+                      crossAxisAlignment: CrossAxisAlignment.end,
+                      children: [
+                        Expanded(
+                          child: StreamBuilder<List<Tag>>(
+                            stream: db.watchTagsOfThought(thought.id),
+                            builder: (context, tSnap) {
+                              final noteTags = tSnap.data ?? const <Tag>[];
+                              if (noteTags.isEmpty) {
+                                return const SizedBox.shrink();
+                              }
+                              return Wrap(
+                                spacing: 6,
+                                runSpacing: 4,
+                                children: noteTags
+                                    .map((t) => Container(
+                                          padding: const EdgeInsets.symmetric(
+                                              horizontal: 8, vertical: 2),
+                                          decoration: BoxDecoration(
+                                            color: Color(int.parse(t.color
+                                                    .replaceFirst('#', '0xFF')))
+                                                .withValues(alpha: 0.12),
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                          ),
+                                          child: Text(t.name,
+                                              style: TextStyle(
+                                                  fontSize: 10,
+                                                  color: Color(int.parse(
+                                                      t.color.replaceFirst(
+                                                          '#', '0xFF'))))),
+                                        ))
+                                    .toList(),
+                              );
+                            },
                           ),
-                        );
-                      },
+                        ),
+                        // 水滴三态徽章移到左下（点击推进，44px 触控区）
+                        StreamBuilder<List<Stage>>(
+                          stream: stagesStream,
+                          builder: (context, sSnap) {
+                            final stage =
+                                stageOf(sSnap.data ?? const <Stage>[], thought);
+                            return InkWell(
+                              borderRadius: BorderRadius.circular(12),
+                              onTap: () => db.advanceStage(thought.id),
+                              child: SizedBox(
+                                width: 44,
+                                height: 44,
+                                child: Center(
+                                  child: Tooltip(
+                                    message: '${stage.name} · 点击推进',
+                                    child: DropBadge(
+                                      kind: stage.kind,
+                                      color: Color(int.parse(stage.color
+                                          .replaceFirst('#', '0xFF'))),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ],
                     ),
-                    Text(timeText, style: const TextStyle(fontSize: 11, color: T.inkTertiary)),
                   ],
                 ),
-              ),
-            ],
-          ),
         ),
       ),
     );
@@ -417,80 +485,6 @@ class _NoteCard extends StatelessWidget {
       ),
     );
   }
-}
-
-/// 水滴徽章：灵感=空心轮廓 / 推进中=半实心 / 完成=实心
-class _DropBadge extends StatelessWidget {
-  final String kind;
-  final Color color;
-  const _DropBadge({required this.kind, required this.color});
-
-  @override
-  Widget build(BuildContext context) {
-    Widget drop;
-    switch (kind) {
-      case 'in_progress':
-        drop = CustomPaint(painter: _HalfDrop(color: color), size: const Size(32, 32));
-        break;
-      case 'done':
-        drop = Icon(Icons.water_drop, size: 28, color: color);
-        break;
-      default:
-        drop = CustomPaint(painter: _OutlineDrop(color), size: const Size(32, 32));
-    }
-    return SizedBox(width: 32, height: 32, child: Center(child: drop));
-  }
-}
-
-class _OutlineDrop extends CustomPainter {
-  final Color color;
-  const _OutlineDrop(this.color);
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawPath(
-        _dropPath(size),
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..color = color);
-  }
-
-  @override
-  bool shouldRepaint(covariant _OutlineDrop old) => old.color != color;
-}
-
-class _HalfDrop extends CustomPainter {
-  final Color color;
-  _HalfDrop({required this.color});
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final path = _dropPath(size);
-    canvas.drawPath(
-        path,
-        Paint()
-          ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
-          ..color = color);
-    canvas.save();
-    canvas.clipRect(Rect.fromLTWH(0, size.height / 2, size.width, size.height / 2));
-    canvas.drawPath(path, Paint()..color = color);
-    canvas.restore();
-  }
-
-  @override
-  bool shouldRepaint(covariant _HalfDrop old) => old.color != color;
-}
-
-Path _dropPath(Size size) {
-  final w = size.width, h = size.height;
-  return Path()
-    ..moveTo(w / 2, 2)
-    ..cubicTo(w / 2, 2, w - 4, h * 0.42, w - 4, h * 0.62)
-    ..arcToPoint(Offset(4, h * 0.62), radius: Radius.circular((w - 8) / 2), clockwise: false)
-    ..cubicTo(4, h * 0.42, w / 2, 2, w / 2, 2)
-    ..close();
 }
 
 /// 批量操作栏：多选模式底部常驻（打标/移动/置顶/删除）
@@ -731,8 +725,7 @@ class _EmptyState extends StatelessWidget {
     final theme = Theme.of(context);
     return Center(
       child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        const CustomPaint(
-            painter: _OutlineDrop(T.stageInspiration), size: Size(48, 48)),
+        const DropBadge(kind: 'inspiration', color: T.stageInspiration, size: 48),
         const SizedBox(height: 16),
         Text('第一个念头，从一颗水滴开始', style: theme.textTheme.titleMedium),
         const SizedBox(height: 6),

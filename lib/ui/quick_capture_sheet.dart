@@ -94,27 +94,45 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            // 顶部状态行：标题 + 自动保存指示
+            // 顶部状态行：拖拽把手（创意 ②-1）+ 标题 + 自动保存指示
+            Center(
+              child: Container(
+                width: 32,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: T.inkTertiary.withValues(alpha: 0.4),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
             Row(children: [
               Text('随想速记', style: theme.textTheme.titleMedium),
               const Spacer(),
               _SavedIndicator(savedAt: _savedAt),
             ]),
             const SizedBox(height: 8),
+            // 创意 ②-2：纸面放大——17px 正文 / 1.7 行高，写字像在纸上
             TextField(
               controller: _controller,
               focusNode: _focus,
               maxLines: null,
-              minLines: 6,
+              minLines: 7,
               onChanged: _onChanged,
               textInputAction: TextInputAction.newline,
               decoration: InputDecoration(
                 hintText: '第一个念头，从一颗水滴开始…',
-                hintStyle: const TextStyle(color: T.inkTertiary),
+                hintStyle: const TextStyle(color: T.inkTertiary, fontSize: 16),
                 border: InputBorder.none,
               ),
-              style: theme.textTheme.bodyLarge,
+              style: const TextStyle(
+                  fontSize: 17,
+                  height: 1.7,
+                  color: T.inkPrimary),
             ),
+            // 分隔线 + 底部字数/完成行（层级三：背景层 11-12px）
+            Divider(height: 1, thickness: 1, color: T.inkTertiary.withValues(alpha: 0.15)),
+            const SizedBox(height: 4),
             Row(children: [
               Text('$_wordCount 字',
                   style: const TextStyle(color: T.inkTertiary, fontSize: 12)),
@@ -140,7 +158,8 @@ class _SavedIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     if (savedAt == null) return const SizedBox.shrink();
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      const Icon(Icons.check_circle_outline, size: 14, color: T.stageDone),
+      // 创意 ②-1：保存徽章水滴化「落珠」
+      const Icon(Icons.water_drop, size: 14, color: T.stageDone),
       const SizedBox(width: 4),
       Text('已自动保存',
           style: TextStyle(

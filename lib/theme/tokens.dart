@@ -27,6 +27,21 @@ class T {
   static const darkInkTertiary = Color(0xFF6E7488);
 
   static const danger = Color(0xFFE5484D);
+  static const warning = Color(0xFFF5A623);
+  static const dangerContainer = Color(0xFFFDECEC);
+  static const darkDangerContainer = Color(0xFF3A2629);
+  static const paperCardAlt = Color(0xFFF4F0E9);
+  static const darkCardAlt = Color(0xFF2E3140);
+
+  // 卡片单层浅投影（性能守则：每卡最多 1 层 BoxShadow，禁双层堆叠）
+  static List<BoxShadow> shadowCard(Brightness b) => [
+        BoxShadow(
+          color: (b == Brightness.light ? Color(0xFF000000) : Color(0xFF000000))
+              .withValues(alpha: b == Brightness.light ? 0.08 : 0.16),
+          blurRadius: 4,
+          offset: const Offset(0, 1),
+        ),
+      ];
 
   // 圆角（卡片 18 / 弹层 24）
   static const rCard = 18.0;

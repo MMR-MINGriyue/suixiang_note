@@ -1,0 +1,107 @@
+import 'package:flutter/material.dart';
+
+import '../../data/app_database.dart';
+
+/// 水滴三态徽章（公共组件）：灵感=空心轮廓 / 推进中=半实心 / 完成=实心。
+/// 从 home_page.dart 抽出，供首页 / 详情页等复用。
+class DropBadge extends StatelessWidget {
+  final String kind;
+  final Color color;
+  final double size;
+
+  const DropBadge({
+    super.key,
+    required this.kind,
+    required this.color,
+    this.size = 32,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    Widget drop;
+    switch (kind) {
+      case 'in_progress':
+        drop = CustomPaint(
+            painter: _HalfDrop(color: color), size: Size(size, size));
+        break;
+      case 'done':
+        drop = Icon(Icons.water_drop, size: size * 0.875, color: color);
+        break;
+      default:
+        drop = CustomPaint(
+            painter: _OutlineDrop(color), size: Size(size, size));
+    }
+    return SizedBox(
+        width: size, height: size, child: Center(child: drop));
+  }
+}
+
+/// 从随记行内解析当前 Stage 对象；流数据未就绪时回退灵感态。
+/// 抽到这里避免首页/详情页各自维护 fallback 逻辑（架构评审 B2）。
+Stage stageOf(List<Stage> stages, Thought thought) {
+  try {
+    return stages.firstWhere((s) => s.id == thought.stageId);
+  } on StateError {
+    return Stage(
+        id: 1,
+        name: '灵感',
+        kind: 'inspiration',
+        color: '#A8B9E6',
+        position: 1.0,
+        isSystem: true,
+        createdAt: 0);
+  }
+}
+
+class _OutlineDrop extends CustomPainter {
+  final Color color;
+  const _OutlineDrop(this.color);
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.drawPath(
+        _dropPath(size),
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = color);
+  }
+
+  @override
+  bool shouldRepaint(covariant _OutlineDrop old) => old.color != color;
+}
+
+class _HalfDrop extends CustomPainter {
+  final Color color;
+  _HalfDrop({required this.color});
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = _dropPath(size);
+    canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 2
+          ..color = color);
+    canvas.save();
+    canvas.clipRect(
+        Rect.fromLTWH(0, size.height / 2, size.width, size.height / 2));
+    canvas.drawPath(path, Paint()..color = color);
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _HalfDrop old) => old.color != color;
+}
+
+Path _dropPath(Size size) {
+  final w = size.width, h = size.height;
+  return Path()
+    ..moveTo(w / 2, 2)
+    ..cubicTo(w / 2, 2, w - 4, h * 0.42, w - 4, h * 0.62)
+    ..arcToPoint(Offset(4, h * 0.62),
+        radius: Radius.circular((w - 8) / 2), clockwise: false)
+    ..cubicTo(4, h * 0.42, w / 2, 2, w / 2, 2)
+    ..close();
+}
