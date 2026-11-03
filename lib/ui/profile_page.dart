@@ -5,9 +5,11 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../data/backup_service.dart';
+import '../data/app_database.dart';
 import '../main.dart' show appDb, themeModeNotifier;
 import '../theme/tokens.dart';
 import 'tag_manage_page.dart';
+import 'widgets/drop_badge.dart';
 
 /// Tab 2 我的（M6 设置闭环，v1.0 按 PM 评审「9 行」收敛版）：
 /// 外观（深色模式）· 记录偏好（列表排序/触感）· 数据（备份/恢复/清空回收站）· 关于
@@ -162,6 +164,9 @@ class _ProfilePageState extends State<ProfilePage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
+          // 品牌头卡（创意 ⑦-1）：水滴 Logo + 总览数据（总数/推进中/已完成）
+          _BrandHeader(db: appDb),
+          const SizedBox(height: 16),
           _SectionHeader('外观'),
           Card(
             child: RadioGroup<String>(
@@ -268,6 +273,89 @@ class _SectionHeader extends StatelessWidget {
       child: Text(text,
           style: TextStyle(
               color: T.inkSecondary, fontSize: 13, fontWeight: FontWeight.w600)),
+    );
+  }
+}
+
+/// 品牌头卡（美化 P1 ⑦-1）：水滴 Logo + 三态总览数据
+class _BrandHeader extends StatelessWidget {
+  final AppDatabase db;
+  const _BrandHeader({required this.db});
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final isDark = theme.brightness == Brightness.dark;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: isDark ? T.darkCardAlt : T.paperCardAlt,
+        borderRadius: BorderRadius.circular(T.rCard + 4),
+      ),
+      child: Row(
+        children: [
+          // 48px 水滴 Logo：完成态实心 + 品牌色（最小装饰实现，零自定义绘制）
+          const DropBadge(kind: 'done', color: T.brandPrimary, size: 48),
+          const SizedBox(width: 14),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('随想随记', style: theme.textTheme.titleMedium),
+                const SizedBox(height: 2),
+                Text('每一滴想法，都值得被接住',
+                    style: TextStyle(fontSize: 12, color: T.inkSecondary)),
+              ],
+            ),
+          ),
+          // 三态计数（StreamBuilder 长连一条 watchList；量级小可接受）
+          StreamBuilder<List<Thought>>(
+            stream: db.watchList(),
+            builder: (context, snap) {
+              final list = snap.data ?? const <Thought>[];
+              final total = list.length;
+              final inProgress =
+                  list.where((t) => t.stageId == 2).length;
+              final done = list.where((t) => t.stageId == 3).length;
+              return Row(
+                children: [
+                  _Stat(value: total, label: '全部'),
+                  _statDivider(),
+                  _Stat(value: inProgress, label: '推进'),
+                  _statDivider(),
+                  _Stat(value: done, label: '完成'),
+                ],
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _statDivider() => Container(
+      width: 1, height: 20, color: T.inkTertiary.withValues(alpha: 0.3));
+}
+
+class _Stat extends StatelessWidget {
+  final int value;
+  final String label;
+  const _Stat({required this.value, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      child: Column(
+        children: [
+          Text('$value',
+              style: const TextStyle(
+                  fontSize: 16, fontWeight: FontWeight.w700)),
+          Text(label,
+              style: const TextStyle(fontSize: 10, color: T.inkTertiary)),
+        ],
+      ),
     );
   }
 }

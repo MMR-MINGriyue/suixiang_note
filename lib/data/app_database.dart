@@ -15,11 +15,18 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(driftDatabase(name: 'suixiang_note'));
 
   @override
-  int get schemaVersion => 1;
+  int get schemaVersion => 2;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
         onCreate: (m) => m.createAll(),
+        onUpgrade: (m, from, to) async {
+          // v2：folders 加 color 列已有默认值（withDefault），drift 建表即含列，
+          // 但存量库需要 ALTER TABLE 补列（美化 P1 ④-2 抽屉网格换色）。
+          if (from < 2) {
+            await m.addColumn(folders, folders.color);
+          }
+        },
         beforeOpen: (details) async {
           // 索引（PRD §6.3，部分索引排除软删行）
           await customStatement(
@@ -188,6 +195,14 @@ class AppDatabase extends _$AppDatabase {
     return id;
   }
 
+  /// 文件夹换色（美化 P1 ④-2）
+  Future<void> setFolderColor(int folderId, String color) async {
+    await (update(folders)..where((f) => f.id.equals(folderId)))
+        .write(FoldersCompanion(
+            color: Value(color),
+            updatedAt: Value(DateTime.now().millisecondsSinceEpoch)));
+  }
+
   // ═══════════════ 文件夹（M4 整理闭环的数据面） ═══════════════
 
   /// 文件夹流：含未软删随记计数（收件箱计数由 UI 单独算）
@@ -208,10 +223,13 @@ class AppDatabase extends _$AppDatabase {
     return stream;
   }
 
-  Future<void> createFolder(String name) async {
+  Future<void> createFolder(String name, {String? color}) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     await into(folders).insert(FoldersCompanion.insert(
-        name: name.trim(), createdAt: now, updatedAt: now));
+        name: name.trim(),
+        createdAt: now,
+        updatedAt: now,
+        color: color != null ? Value(color) : const Value.absent()));
   }
 
   /// 删文件夹：软删 + 随记回收件箱（folder_id 置 NULL，PRD §4.4）
