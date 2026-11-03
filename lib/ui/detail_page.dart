@@ -29,9 +29,18 @@ class _DetailPageState extends State<DetailPage> {
         widget.thought.content.replaceAll(RegExp(r'\s'), '').length;
   }
 
+  /// 防抖补写：退出页面时若还有未落库的最后输入，立即 flush
+  /// （Architect P0-A1：防抖 dispose 不 flush → 丢最后 500ms 输入）
+  void _flushPendingSave() {
+    _debounce?.cancel();
+    _debounce = null;
+    widget.db.saveDraft(id: widget.thought.id, content: _controller.text);
+  }
+
   @override
   void dispose() {
     _debounce?.cancel();
+    _flushPendingSave();
     _controller.dispose();
     super.dispose();
   }

@@ -87,6 +87,14 @@ class BackupService {
     if (map['app'] != 'suixiang_note') {
       throw const FormatException('不是随想随记的备份文件');
     }
+    // Architect P0-A3：校验 schemaVersion —— 快照的库结构版本不能高于当前应用
+    // （高版本快照的字段在旧版 fromJson 里会被静默丢弃，恢复即数据损失）
+    final backupSchema = (map['schemaVersion'] as num?)?.toInt();
+    if (backupSchema != null && backupSchema > db.schemaVersion) {
+      throw FormatException(
+          '备份文件结构版本（$backupSchema）高于当前应用（${db.schemaVersion}），'
+          '请先升级应用再恢复');
+    }
 
     // 恢复前快照（PRD §6.4 迁移前快照纪律的延伸）
     await backupNow();

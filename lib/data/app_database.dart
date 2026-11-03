@@ -165,9 +165,17 @@ class AppDatabase extends _$AppDatabase {
       );
       return into(thoughts).insert(companion);
     }
-    // 已有草稿：空内容 → 硬删草稿行；否则更新
+    // 已有草稿：空内容 → 软删入回收站（Architect P0-A2：硬删绕过回收站，
+    // 违背「删除可恢复」心智；且 saveDraft 可能在用户尚未意识到时触发）
     if (trimmed.isEmpty) {
-      await (delete(thoughts)..where((t) => t.id.equals(id))).go();
+      final row = await (select(thoughts)..where((t) => t.id.equals(id)))
+          .getSingleOrNull();
+      if (row != null && row.deletedAt == null) {
+        await (update(thoughts)..where((t) => t.id.equals(id)))
+            .write(ThoughtsCompanion(
+                deletedAt: Value(now),
+                updatedAt: Value(now)));
+      }
       return -1;
     }
     final firstLine = trimmed.split('\n').first;
