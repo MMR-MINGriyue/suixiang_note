@@ -307,6 +307,53 @@ class AppDatabase extends _$AppDatabase {
       ]);
     return query.watch().map((rows) => rows.map((r) => r.readTable(thoughts)).toList());
   }
+  // ═══════════════ 批量操作（v1.3：多选 → 批量打标/移动/置顶/删除） ═══════════════
+
+  /// 批量追加标签（union 语义：每条随记在现有标签之上追加，不覆盖已有）
+  Future<void> batchAppendTags(List<int> thoughtIds, List<int> tagIds) async {
+    if (thoughtIds.isEmpty || tagIds.isEmpty) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await transaction(() async {
+      for (final thoughtId in thoughtIds) {
+        for (final tagId in tagIds) {
+          await into(thoughtTags).insert(
+              ThoughtTagsCompanion.insert(
+                  thoughtId: thoughtId, tagId: tagId, createdAt: now),
+              mode: InsertMode.insertOrIgnore);
+        }
+        await (update(thoughts)..where((t) => t.id.equals(thoughtId)))
+            .write(ThoughtsCompanion(updatedAt: Value(now)));
+      }
+    });
+  }
+
+  /// 批量移动到文件夹（null=收件箱）
+  Future<void> batchMoveToFolder(List<int> thoughtIds, int? folderId) async {
+    if (thoughtIds.isEmpty) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await (update(thoughts)..where((t) => t.id.isIn(thoughtIds)))
+        .write(ThoughtsCompanion(
+            folderId: Value(folderId), updatedAt: Value(now)));
+  }
+
+  /// 批量软删 → 回收站
+  Future<void> batchSoftDelete(List<int> thoughtIds) async {
+    if (thoughtIds.isEmpty) return;
+    await (update(thoughts)..where((t) => t.id.isIn(thoughtIds)))
+        .write(ThoughtsCompanion(
+            deletedAt: Value(DateTime.now().millisecondsSinceEpoch)));
+  }
+
+  /// 批量置顶/取消置顶（目标状态由调用方给定，按钮语义「全部置顶/全部取消」）
+  Future<void> batchSetPinned(List<int> thoughtIds, bool pinned) async {
+    if (thoughtIds.isEmpty) return;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await (update(thoughts)..where((t) => t.id.isIn(thoughtIds))).write(
+        ThoughtsCompanion(
+            isPinned: Value(pinned),
+            pinnedAt: Value(pinned ? now : null)));
+  }
+
   // ═══════════════ 设置 KV ═══════════════
 
   /// 清空回收站：物理删除已软删随记

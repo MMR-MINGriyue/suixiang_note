@@ -23,6 +23,9 @@ class _HomePageState extends State<HomePage> {
   int? _tagFilter; // 当前标签过滤（null=全部）
   Timer? _debounce;
   final _searchCtrl = TextEditingController();
+  final Set<int> _selected = {}; // 多选模式选中的随记 id
+  List<int> _visibleIds = const []; // 当前可见列表 id（供全选用）
+  bool get _multiSelect => _selected.isNotEmpty;
 
   @override
   void dispose() {
@@ -38,24 +41,58 @@ class _HomePageState extends State<HomePage> {
     });
   }
 
+  void _toggleSelect(int id) {
+    setState(() {
+      if (!_selected.remove(id)) _selected.add(id);
+    });
+  }
+
+  void _exitMultiSelect() => setState(() => _selected.clear());
+
   @override
   Widget build(BuildContext context) {
     final db = widget.db;
     final theme = Theme.of(context);
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('随想'),
+      appBar: AppBar(        title: _multiSelect
+            ? Text('已选 ${_selected.length} 项')
+            : const Text('随想'),
         backgroundColor: Colors.transparent,
         titleTextStyle:
             theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+        leading: _multiSelect
+            ? IconButton(
+                icon: const Icon(Icons.close),
+                tooltip: '退出多选',
+                onPressed: _exitMultiSelect,
+              )
+            : null,
         actions: [
-          // 回收站入口（软删数据不再只有「清空」一条路）
-          IconButton(
-            icon: const Icon(Icons.delete_outline),
-            tooltip: '回收站',
-            onPressed: () => Navigator.push(context,
-                MaterialPageRoute(builder: (_) => TrashPage(db: db))),
-          ),
+          if (_multiSelect)
+            IconButton(
+              icon: const Icon(Icons.select_all),
+              tooltip: '全选/清空',
+              onPressed: () {
+                setState(() {
+                  if (_selected.length == _visibleIds.length) {
+                    _selected.clear();
+                  } else {
+                    _selected
+                      ..clear()
+                      ..addAll(_visibleIds);
+                  }
+                });
+              },
+            )
+          else ...[
+            // 回收站入口（软删数据不再只有「清空」一条路）
+            IconButton(
+              icon: const Icon(Icons.delete_outline),
+              tooltip: '回收站',
+              onPressed: () => Navigator.push(context,
+                  MaterialPageRoute(builder: (_) => TrashPage(db: db))),
+            ),
+          ],
         ],
       ),
       body: Column(
@@ -126,11 +163,16 @@ class _HomePageState extends State<HomePage> {
           ),
         ],
       ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () => QuickCaptureSheet.open(context, db),
-        shape: const CircleBorder(),
-        child: const Icon(Icons.edit_outlined),
-      ),
+      floatingActionButton: _multiSelect
+          ? null
+          : FloatingActionButton(
+              onPressed: () => QuickCaptureSheet.open(context, db),
+              shape: const CircleBorder(),
+              child: const Icon(Icons.edit_outlined),
+            ),
+      bottomNavigationBar: _multiSelect
+          ? _BatchActionBar(db: db, selected: _selected, onDone: _exitMultiSelect)
+          : null,
     );
   }
 
@@ -141,6 +183,10 @@ class _HomePageState extends State<HomePage> {
       return const Center(child: CircularProgressIndicator());
     }
     final list = snap.data!;
+    // 供 AppBar 全选用：只在非 build 状态变化时更新（避免 build 中 setState）
+    if (!_listEquals(_visibleIds, list.map((t) => t.id).toList())) {
+      _visibleIds = list.map((t) => t.id).toList();
+    }
     if (list.isEmpty) {
       return searchInactive
           ? const _EmptyState()
@@ -153,9 +199,20 @@ class _HomePageState extends State<HomePage> {
       itemBuilder: (context, i) => _NoteCard(
           db: db,
           thought: list[i],
-          stagesStream: db.watchStages()),
+          stagesStream: db.watchStages(),
+          multiSelect: _multiSelect,
+          selected: _selected.contains(list[i].id),
+          onToggleSelect: () => _toggleSelect(list[i].id)),
     );
   }
+}
+
+bool _listEquals(List<int> a, List<int> b) {
+  if (a.length != b.length) return false;
+  for (var i = 0; i < a.length; i++) {
+    if (a[i] != b[i]) return false;
+  }
+  return true;
 }
 
 /// 搜索无结果空态
@@ -176,12 +233,23 @@ class _SearchEmpty extends StatelessWidget {
 }
 
 /// 单卡：纸感卡片 + 标题/预览/时间 + 水滴三态徽章（点按切态）
+/// 多选模式：点按=勾选/取消，长按仍弹单条操作
 class _NoteCard extends StatelessWidget {
   final AppDatabase db;
   final Thought thought;
   final Stream<List<Stage>> stagesStream;
+  final bool multiSelect;
+  final bool selected;
+  final VoidCallback onToggleSelect;
 
-  const _NoteCard({required this.db, required this.thought, required this.stagesStream});
+  const _NoteCard({
+    required this.db,
+    required this.thought,
+    required this.stagesStream,
+    this.multiSelect = false,
+    this.selected = false,
+    required this.onToggleSelect,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -192,19 +260,37 @@ class _NoteCard extends StatelessWidget {
         .format(DateTime.fromMillisecondsSinceEpoch(thought.updatedAt));
 
     return Card(
+      shape: selected
+          ? RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(T.rCard),
+              side: const BorderSide(color: T.brandPrimary, width: 2))
+          : null,
       child: InkWell(
         borderRadius: BorderRadius.circular(T.rCard),
-        onTap: () => Navigator.push(
-            context,
-            MaterialPageRoute(
-                builder: (_) =>
-                    DetailPage(db: db, thought: thought))),
-        onLongPress: () => _showActions(context),
+        onTap: multiSelect
+            ? onToggleSelect
+            : () => Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) =>
+                        DetailPage(db: db, thought: thought))),
+        onLongPress: () =>
+            multiSelect ? onToggleSelect : _showActions(context),
         child: Padding(
           padding: const EdgeInsets.all(14),
           child: Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              if (multiSelect) ...[
+                Icon(
+                  selected
+                      ? Icons.check_circle
+                      : Icons.radio_button_unchecked,
+                  size: 24,
+                  color: selected ? T.brandPrimary : T.inkTertiary,
+                ),
+                const SizedBox(width: 12),
+              ] else ...[
               // 水滴三态徽章（点击推进）
               StreamBuilder<List<Stage>>(
                 stream: stagesStream,
@@ -237,6 +323,7 @@ class _NoteCard extends StatelessWidget {
                 },
               ),
               const SizedBox(width: 12),
+              ],
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -404,6 +491,235 @@ Path _dropPath(Size size) {
     ..arcToPoint(Offset(4, h * 0.62), radius: Radius.circular((w - 8) / 2), clockwise: false)
     ..cubicTo(4, h * 0.42, w / 2, 2, w / 2, 2)
     ..close();
+}
+
+/// 批量操作栏：多选模式底部常驻（打标/移动/置顶/删除）
+class _BatchActionBar extends StatelessWidget {
+  final AppDatabase db;
+  final Set<int> selected;
+  final VoidCallback onDone;
+
+  const _BatchActionBar(
+      {required this.db, required this.selected, required this.onDone});
+
+  @override
+  Widget build(BuildContext context) {
+    final ids = selected.toList();
+    return SafeArea(
+      child: Container(
+        height: 64,
+        decoration: BoxDecoration(
+          color: Theme.of(context).cardColor,
+          border: Border(
+              top: BorderSide(color: T.inkTertiary.withValues(alpha: 0.2))),
+        ),
+        child: Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly, children: [
+          _ActionItem(
+            icon: Icons.label_outline,
+            label: '打标签',
+            onTap: () => _batchTags(context, ids),
+          ),
+          _ActionItem(
+            icon: Icons.drive_file_move_outline,
+            label: '移动到',
+            onTap: () => _batchMove(context, ids),
+          ),
+          _ActionItem(
+            icon: Icons.push_pin_outlined,
+            label: '置顶',
+            onTap: () async {
+              await db.batchSetPinned(ids, true);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('已置顶 ${ids.length} 条')));
+                onDone();
+              }
+            },
+          ),
+          _ActionItem(
+            icon: Icons.delete_outline,
+            label: '删除',
+            danger: true,
+            onTap: () => _batchDelete(context, ids),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// 批量打标：弹层复用标签选择 UI，追加式语义（不覆盖已有标签）
+  Future<void> _batchTags(BuildContext context, List<int> ids) async {
+    final allTags = await db.watchTags().first;
+    if (!context.mounted) return;
+    final picked = await showModalBottomSheet<Set<int>>(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(T.rSheet))),
+      builder: (ctx) => _BatchTagSheet(allTags: allTags),
+    );
+    if (picked == null || picked.isEmpty) return;
+    await db.batchAppendTags(ids, picked.toList());
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('已为 ${ids.length} 条随记追加 ${picked.length} 个标签')));
+      onDone();
+    }
+  }
+
+  /// 批量移动文件夹
+  Future<void> _batchMove(BuildContext context, List<int> ids) async {
+    final folders = await db.watchFoldersWithCount().first;
+    if (!context.mounted) return;
+    final picked = await showDialog<int>(
+      context: context,
+      builder: (ctx) => SimpleDialog(
+        title: Text('移动 ${ids.length} 条到'),
+        children: [
+          SimpleDialogOption(
+            onPressed: () => Navigator.pop(ctx, 0),
+            child: const ListTile(
+              leading: Icon(Icons.inbox_outlined),
+              title: Text('收件箱（不归文件夹）'),
+              contentPadding: EdgeInsets.zero,
+            ),
+          ),
+          ...folders
+              .where((f) => f.folder.deletedAt == null)
+              .map((f) => SimpleDialogOption(
+                    onPressed: () => Navigator.pop(ctx, f.folder.id),
+                    child: ListTile(
+                      leading: const Icon(Icons.folder_outlined),
+                      title: Text(f.folder.name),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  )),
+        ],
+      ),
+    );
+    if (picked == null) return;
+    await db.batchMoveToFolder(ids, picked == 0 ? null : picked);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已移动 ${ids.length} 条')));
+      onDone();
+    }
+  }
+
+  /// 批量软删（回收站可恢复）
+  Future<void> _batchDelete(BuildContext context, List<int> ids) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: Text('删除 ${ids.length} 条随记？'),
+        content: const Text('将移入回收站，可随时恢复。'),
+        actions: [
+          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: T.danger),
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('删除'),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await db.batchSoftDelete(ids);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已删除 ${ids.length} 条（回收站可恢复）')));
+      onDone();
+    }
+  }
+}
+
+/// 批量打标弹层（与详情页单条打标不同的语义：这里只有「勾选标签」没有新建，
+/// 追加式不覆盖；保持轻量。新建/管理标签请走「标签管理」页）
+class _BatchTagSheet extends StatefulWidget {
+  final List<Tag> allTags;
+  const _BatchTagSheet({required this.allTags});
+
+  @override
+  State<_BatchTagSheet> createState() => _BatchTagSheetState();
+}
+
+class _BatchTagSheetState extends State<_BatchTagSheet> {
+  final Set<int> _picked = {};
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(
+            20, 20, 20, 20 + MediaQuery.of(context).viewInsets.bottom),
+        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('选择要追加的标签', style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 4),
+          Text('不会覆盖随记已有的标签',
+              style: TextStyle(fontSize: 12, color: T.inkSecondary)),
+          const SizedBox(height: 12),
+          if (widget.allTags.isEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Center(child: Text('还没有标签，先在「我的 → 标签管理」创建',
+                  style: TextStyle(color: T.inkSecondary))),
+            )
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: widget.allTags
+                  .map((t) => FilterChip(
+                        label: Text(t.name),
+                        selected: _picked.contains(t.id),
+                        avatar: Icon(Icons.label,
+                            size: 16,
+                            color: Color(int.parse(
+                                t.color.replaceFirst('#', '0xFF')))),
+                        onSelected: (on) =>
+                            setState(() => on ? _picked.add(t.id) : _picked.remove(t.id)),
+                      ))
+                  .toList(),
+            ),
+          const SizedBox(height: 16),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton(
+              onPressed: () => Navigator.pop(context, _picked),
+              child: Text(_picked.isEmpty ? '取消' : '追加到已选随记（${_picked.length} 个标签）'),
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
+class _ActionItem extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool danger;
+  final VoidCallback onTap;
+
+  const _ActionItem(
+      {required this.icon, required this.label, this.danger = false, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final color = danger ? T.danger : T.inkSecondary;
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 22, color: color),
+          const SizedBox(height: 2),
+          Text(label, style: TextStyle(fontSize: 11, color: color)),
+        ]),
+      ),
+    );
+  }
 }
 
 /// 空态：悬落水滴 + 引导文案
