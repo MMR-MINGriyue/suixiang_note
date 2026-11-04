@@ -105,6 +105,7 @@ class _GraphPageState extends State<GraphPage> {
                           _NodeHitTarget(
                             node: node,
                             selected: _selected == node.thought.id,
+                            showLabel: layout.nodes.length <= 40,
                             onTap: () => setState(() => _selected =
                                 _selected == node.thought.id
                                     ? null
@@ -234,11 +235,13 @@ class _GraphPageState extends State<GraphPage> {
 class _NodeHitTarget extends StatelessWidget {
   final GraphNode node;
   final bool selected;
+  final bool showLabel;
   final VoidCallback onTap;
   final VoidCallback onDoubleTap;
   const _NodeHitTarget({
     required this.node,
     required this.selected,
+    required this.showLabel,
     required this.onTap,
     required this.onDoubleTap,
   });
@@ -246,14 +249,43 @@ class _NodeHitTarget extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     const box = 44.0;
-    return Positioned(
-      left: node.position.dx - box / 2,
-      top: node.position.dy - box / 2,
-      child: GestureDetector(
-        onTap: onTap,
-        onDoubleTap: onDoubleTap,
-        child: SizedBox(width: box, height: box),
-      ),
+    final dark = Theme.of(context).brightness == Brightness.dark;
+
+    return Stack(
+      children: [
+        Positioned(
+          left: node.position.dx - box / 2,
+          top: node.position.dy - box / 2,
+          child: GestureDetector(
+            onTap: onTap,
+            onDoubleTap: onDoubleTap,
+            child: SizedBox(width: box, height: box),
+          ),
+        ),
+        // 标签只在节点不多时显示：几十条以上时每个点都挂一段文字，
+        // 画面会糊成一片噪点，还不如只留位置关系让人自己缩放去看。
+        if (showLabel)
+          Positioned(
+            left: node.position.dx - 60,
+            top: node.position.dy + node.radius + 3,
+            width: 120,
+            child: IgnorePointer(
+              child: Text(
+                node.displayTitle,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                textAlign: TextAlign.center,
+                style: TextStyle(
+                  fontSize: selected ? 11.5 : 10.5,
+                  fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+                  color: selected
+                      ? T.brandPrimary
+                      : (dark ? T.darkInkSecondary : T.inkSecondary),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 }

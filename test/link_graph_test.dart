@@ -291,5 +291,41 @@ void main() {
         expect(n.radius, lessThanOrEqualTo(18.0));
       }
     });
+
+    test('节点标签：有标题用标题，没标题退到正文首行，都空给占位', () {
+      Thought make(int id, String title, String content) => Thought(
+            id: id,
+            uuid: 'u$id',
+            title: title,
+            content: content,
+            folderId: null,
+            stageId: 1,
+            isPinned: false,
+            pinnedAt: null,
+            isArchived: false,
+            source: 'app',
+            wordCount: 0,
+            createdAt: 0,
+            updatedAt: 0,
+            completedAt: null,
+            stageChangedAt: null,
+            deletedAt: null,
+          );
+      const p = Offset.zero;
+      expect(GraphNode(thought: make(1, '周会结论', '正文'), position: p, degree: 0)
+          .displayTitle, '周会结论');
+      expect(
+          GraphNode(
+                  thought: make(2, '', '\n\n第一行有内容\n第二行'),
+                  position: p,
+                  degree: 0)
+              .displayTitle,
+          '第一行有内容');
+      expect(
+          GraphNode(
+                  thought: make(3, '  ', '   '), position: p, degree: 0)
+              .displayTitle,
+          '（无标题）');
+    });
   });
 }

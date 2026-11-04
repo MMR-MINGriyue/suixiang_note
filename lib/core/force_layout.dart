@@ -13,6 +13,19 @@ class GraphNode {
   /// 但上下限很死（10–18），否则少数节点会把整张图挤成一团。
   double get radius => (10.0 + degree * 1.4).clamp(10.0, 18.0);
 
+  /// 图上给节点标的字。取标题；没有标题（只写了几行正文的情况）取正文首行；
+  /// 都空就给一个占位，否则节点下方是一片空白，比不标还让人困惑。
+  String get displayTitle {
+    final t = thought.title.trim();
+    if (t.isNotEmpty) return t;
+    final firstLine = thought.content
+        .trim()
+        .split('\n')
+        .firstWhere((l) => l.trim().isNotEmpty, orElse: () => '')
+        .trim();
+    return firstLine.isEmpty ? '（无标题）' : firstLine;
+  }
+
   const GraphNode({
     required this.thought,
     required this.position,
