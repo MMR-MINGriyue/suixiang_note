@@ -10,15 +10,21 @@ import 'widgets/empty_state.dart';
 /// 速记捕捉页：模态全屏，自动落库（500ms 防抖），无保存按钮（PRD §4.1）
 class QuickCaptureSheet extends StatefulWidget {
   final AppDatabase db;
-  const QuickCaptureSheet({super.key, required this.db});
+
+  /// 预填正文：外部入口（小部件/通知栏/系统分享/深链）带进来的文字。
+  /// 预填内容会立刻落库，不依赖用户再敲一个字符。
+  final String? initialText;
+
+  const QuickCaptureSheet({super.key, required this.db, this.initialText});
 
   /// 统一入口：showModalBottomSheet 全屏弹层
-  static Future<void> open(BuildContext context, AppDatabase db) {
+  static Future<void> open(BuildContext context, AppDatabase db,
+      {String? initialText}) {
     return showModalBottomSheet(
       context: context,
       isScrollControlled: true,
       backgroundColor: Colors.transparent,
-      builder: (_) => QuickCaptureSheet(db: db),
+      builder: (_) => QuickCaptureSheet(db: db, initialText: initialText),
     );
   }
 
@@ -39,8 +45,28 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
   @override
   void initState() {
     super.initState();
+    final seed = widget.initialText?.trim();
+    if (seed != null && seed.isNotEmpty) {
+      // 外部分享/深链带字进来：先铺到输入框，光标置尾
+      _controller.text = seed;
+      _controller.selection =
+          TextSelection.collapsed(offset: seed.length);
+      _wordCount = seed.replaceAll(RegExp(r'\s'), '').length;
+    }
     // 进场即聚焦：目标「点 FAB → 可输入 ≤600ms」
-    WidgetsBinding.instance.addPostFrameCallback((_) => _focus.requestFocus());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _focus.requestFocus();
+      // 外部带进来的文字立即落库：分享过来的内容不能因为用户直接返回而丢
+      if (seed != null && seed.isNotEmpty) {
+        widget.db.saveDraft(content: seed).then((id) {
+          if (!mounted || id <= 0) return;
+          setState(() {
+            _savedId = id;
+            _savedAt = DateTime.now();
+          });
+        });
+      }
+    });
   }
 
   void _onChanged(String text) {

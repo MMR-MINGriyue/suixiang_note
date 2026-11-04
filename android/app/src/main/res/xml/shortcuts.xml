@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  随想随记 长按图标快捷方式
+  目标：把「记一条」的路径从「解锁→找图标→等冷启动→点 FAB」压到「长按→点一下」。
+  长按图标弹出的第一个入口是「记一条」，直接 suixiang://capture（深链由 Dart 侧解析）。
+-->
+<shortcuts xmlns:android="http://schemas.android.com/apk/res/android">
+    <shortcut
+        android:shortcutId="capture"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_capture_short"
+        android:shortcutLongLabel="@string/shortcut_capture_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="suixiang://capture"
+            android:targetClass="com.suixiang.suixiang_note.MainActivity"
+            android:targetPackage="com.suixiang.suixiang_note" />
+        <categories android:name="android.shortcut.conversation" />
+    </shortcut>
+    <shortcut
+        android:shortcutId="archived"
+        android:enabled="true"
+        android:icon="@mipmap/ic_launcher_foreground"
+        android:shortcutShortLabel="@string/shortcut_archive_short"
+        android:shortcutLongLabel="@string/shortcut_archive_long">
+        <intent
+            android:action="android.intent.action.VIEW"
+            android:data="suixiang://archived"
+            android:targetClass="com.suixiang.suixiang_note.MainActivity"
+            android:targetPackage="com.suixiang.suixiang_note" />
+    </shortcut>
+</shortcuts>

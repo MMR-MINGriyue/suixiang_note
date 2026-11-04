@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 桌面小部件声明：2x1 默认尺寸，可缩放到 1x1 ~ 4x2 -->
+<appwidget-provider xmlns:android="http://schemas.android.com/apk/res/android"
+    android:initialLayout="@layout/widget_capture"
+    android:minWidth="110dp"
+    android:minHeight="55dp"
+    android:targetCellWidth="2"
+    android:targetCellHeight="1"
+    android:minResizeWidth="55dp"
+    android:minResizeHeight="55dp"
+    android:maxResizeWidth="250dp"
+    android:maxResizeHeight="110dp"
+    android:resizeMode="horizontal|vertical"
+    android:updatePeriodMillis="0"
+    android:widgetCategory="home_screen"
+    android:description="@string/widget_description" />

@@ -14,6 +14,9 @@ part 'app_database.g.dart';
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(driftDatabase(name: 'suixiang_note'));
 
+  /// 测试用：注入内存执行器，避免多个用例共享同一个磁盘文件互相污染
+  AppDatabase.forTesting(super.executor);
+
   @override
   int get schemaVersion => 2;
 
@@ -77,10 +80,9 @@ class AppDatabase extends _$AppDatabase {
     return (select(thoughts)
           ..where((t) {
             var expr = t.deletedAt.isNull() & t.isArchived.equals(archived);
-            final q = query?.trim();
-            if (q != null && q.isNotEmpty) {
-              expr = expr &
-                  (t.title.like('%$q%') | t.content.like('%$q%'));
+            final q = _escapeLike(query);
+            if (q != null) {
+              expr = expr & _matches(t, q);
             }
             return expr;
           })
@@ -90,6 +92,115 @@ class AppDatabase extends _$AppDatabase {
             (t) => OrderingTerm.desc(t.updatedAt),
           ]))
         .watch();
+  }
+
+  /// LIKE 模式转义：用户输入的 `%` `_` `\` 必须当普通字符，否则搜「100%」会
+  /// 变成通配匹配全库（架构评审 D2）。返回带 `%…%` 的模式串，空查询返回 null。
+  static String? _escapeLike(String? raw) {
+    final q = raw?.trim();
+    if (q == null || q.isEmpty) return null;
+    final escaped =
+        q.replaceAll('\\', '\\\\').replaceAll('%', '\\%').replaceAll('_', '\\_');
+    return '%$escaped%';
+  }
+
+  /// 标题或正文命中（配合 _escapeLike 生成的模式串）
+  static Expression<bool> _matches($ThoughtsTable t, String pattern) =>
+      t.title.like(pattern, escapeChar: '\\') |
+      t.content.like(pattern, escapeChar: '\\');
+
+  /// 统一的信息流：搜索 / 标签 / 状态三种过滤正交组合，单流驱动（首页只用这一个）
+  ///
+  /// 之前首页按「有无标签过滤」分成两条 StreamBuilder 分支，状态过滤一加就变成
+  /// 2×N 分支；收成一个方法后，任意组合都只有一条流，状态也少一份。
+  Stream<List<Thought>> watchFeed({
+    bool archived = false,
+    String? query,
+    int? tagId,
+    int? stageId,
+  }) {
+    final pattern = _escapeLike(query);
+    final rawQuery = query?.trim();
+
+    if (tagId == null) {
+      return (select(thoughts)
+            ..where((t) {
+              var expr = t.deletedAt.isNull() & t.isArchived.equals(archived);
+              if (pattern != null) expr = expr & _matches(t, pattern);
+              if (stageId != null) expr = expr & t.stageId.equals(stageId);
+              return expr;
+            })
+            ..orderBy([
+              (t) => OrderingTerm.desc(t.isPinned),
+              (t) => OrderingTerm.desc(t.pinnedAt),
+              (t) => OrderingTerm.desc(t.updatedAt),
+            ]))
+          .watch();
+    }
+
+    // 有标签过滤 → inner join；join 查询的 orderBy 收 List<OrderingTerm>
+    final joinQuery = select(thoughts).join([
+      innerJoin(thoughtTags, thoughtTags.thoughtId.equalsExp(thoughts.id)),
+    ])
+      ..where(thoughtTags.tagId.equals(tagId) &
+          thoughts.deletedAt.isNull() &
+          thoughts.isArchived.equals(archived))
+      ..orderBy([
+        OrderingTerm.desc(thoughts.isPinned),
+        OrderingTerm.desc(thoughts.pinnedAt),
+        OrderingTerm.desc(thoughts.updatedAt),
+      ]);
+    return joinQuery.watch().map((rows) {
+      final list = rows.map((r) => r.readTable(thoughts)).toList();
+      // join 后无法在 SQL 层叠 LIKE/状态（drift join where 已用掉），在内存里收窄；
+      // 标签命中集通常几十条，代价可忽略。
+      return list.where((t) {
+        if (stageId != null && t.stageId != stageId) return false;
+        if (rawQuery != null &&
+            rawQuery.isNotEmpty &&
+            !t.title.contains(rawQuery) &&
+            !t.content.contains(rawQuery)) {
+          return false;
+        }
+        return true;
+      }).toList();
+    });
+  }
+
+  /// 归档流：isArchived = true 且未删（「不做了但别删」的归处，区别于回收站）
+  Stream<List<Thought>> watchArchived({int? stageId}) {
+    return (select(thoughts)
+          ..where((t) {
+            var expr = t.deletedAt.isNull() & t.isArchived.equals(true);
+            if (stageId != null) expr = expr & t.stageId.equals(stageId);
+            return expr;
+          })
+          ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
+        .watch();
+  }
+
+  /// 归档 / 取消归档。归档时顺手清置顶：归档意味着「不再关心」，
+  /// 保留置顶会让它继续占用置顶额度且语义矛盾。
+  Future<void> setArchived(int thoughtId, bool archived) async {
+    await (update(thoughts)..where((t) => t.id.equals(thoughtId))).write(
+        _archiveCompanion(archived, DateTime.now().millisecondsSinceEpoch));
+  }
+
+  /// 批量归档 / 取消归档
+  Future<void> batchSetArchived(List<int> thoughtIds, bool archived) async {
+    if (thoughtIds.isEmpty) return;
+    await (update(thoughts)..where((t) => t.id.isIn(thoughtIds))).write(
+        _archiveCompanion(archived, DateTime.now().millisecondsSinceEpoch));
+  }
+
+  /// 归档写盘统一入口：归档时同步清置顶，取消归档时不动置顶字段
+  ThoughtsCompanion _archiveCompanion(bool archived, int now) {
+    return ThoughtsCompanion(
+      isArchived: Value(archived),
+      isPinned: archived ? const Value(false) : const Value.absent(),
+      pinnedAt: archived ? const Value(null) : const Value.absent(),
+      updatedAt: Value(now),
+    );
   }
 
   /// 回收站流：软删随记，按删除时间倒序

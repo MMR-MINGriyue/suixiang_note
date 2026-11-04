@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
 import '../data/app_database.dart';
+import '../main.dart' show archivedRequestTicker;
 import '../theme/tokens.dart';
 import 'quick_capture_sheet.dart';
 import 'detail_page.dart';
@@ -24,6 +25,8 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage> {
   String _query = '';
   int? _tagFilter; // 当前标签过滤（null=全部）
+  int? _stageFilter; // 当前状态过滤（null=全部状态）
+  bool _showArchived = false; // 归档视图（区别于回收站：未删，只是「不做了」）
   Timer? _debounce;
   final _searchCtrl = TextEditingController();
   final Set<int> _selected = {}; // 多选模式选中的随记 id
@@ -31,7 +34,27 @@ class _HomePageState extends State<HomePage> {
   bool get _multiSelect => _selected.isNotEmpty;
 
   @override
+  void initState() {
+    super.initState();
+    // 长按图标「归档」快捷方式唤起：外部信号到达时切到归档视图，
+    // 而不是重建首页（重建会丢掉用户当前的搜索/筛选上下文）
+    archivedRequestTicker.addListener(_onArchivedRequest);
+  }
+
+  void _onArchivedRequest() {
+    if (!mounted) return;
+    setState(() {
+      _showArchived = true;
+      _stageFilter = null;
+      _tagFilter = null;
+      _query = '';
+      _searchCtrl.clear();
+    });
+  }
+
+  @override
   void dispose() {
+    archivedRequestTicker.removeListener(_onArchivedRequest);
     _debounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
@@ -138,6 +161,50 @@ class _HomePageState extends State<HomePage> {
               ),
             ),
           ),
+          // 过滤行：状态三态 + 「归档」入口（状态与标签正交组合）
+          SizedBox(
+            height: 44,
+            child: StreamBuilder<List<Stage>>(
+              stream: db.watchStages(),
+              builder: (context, stageSnap) {
+                final stages = stageSnap.data ?? const <Stage>[];
+                return ListView(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: T.pagePad),
+                  children: [
+                    _FilterChip(
+                      label: '全部',
+                      selected: _stageFilter == null && !_showArchived,
+                      onTap: () => setState(() {
+                        _stageFilter = null;
+                        _showArchived = false;
+                      }),
+                    ),
+                    ...stages.map((s) => _FilterChip(
+                          label: s.name,
+                          selected: _stageFilter == s.id && !_showArchived,
+                          dotColor: Color(
+                              int.parse(s.color.replaceFirst('#', '0xFF'))),
+                          onTap: () => setState(() {
+                            // 再点一次取消，回到全部——与标签过滤同一心智
+                            _stageFilter = _stageFilter == s.id ? null : s.id;
+                            _showArchived = false;
+                          }),
+                        )),
+                    _FilterChip(
+                      label: '归档',
+                      icon: Icons.archive_outlined,
+                      selected: _showArchived,
+                      onTap: () => setState(() {
+                        _showArchived = !_showArchived;
+                        if (_showArchived) _stageFilter = null;
+                      }),
+                    ),
+                  ],
+                );
+              },
+            ),
+          ),
           // 标签过滤行：横滚 chip，点选过滤；再点取消
           SizedBox(
             height: 40,
@@ -167,16 +234,17 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           Expanded(
-            child: _tagFilter != null
-                ? StreamBuilder<List<Thought>>(
-                    stream: db.watchThoughtsByTag(_tagFilter!),
-                    builder: (context, snap) =>
-                        _buildList(context, db, snap, searchInactive: true),
-                  )
-                : StreamBuilder<List<Thought>>(
-                    stream: db.watchList(query: _query.isEmpty ? null : _query),
-                    builder: (context, snap) => _buildList(context, db, snap),
-                  ),
+            // 单流驱动：搜索 / 标签 / 状态 / 归档 任意组合都走 watchFeed
+            child: StreamBuilder<List<Thought>>(
+              stream: _showArchived
+                  ? db.watchArchived(stageId: _stageFilter)
+                  : db.watchFeed(
+                      query: _query.isEmpty ? null : _query,
+                      tagId: _tagFilter,
+                      stageId: _stageFilter,
+                    ),
+              builder: (context, snap) => _buildList(context, db, snap),
+            ),
           ),
         ],
       ),
@@ -190,8 +258,7 @@ class _HomePageState extends State<HomePage> {
   }
 
   Widget _buildList(BuildContext context, AppDatabase db,
-      AsyncSnapshot<List<Thought>> snap,
-      {bool searchInactive = false}) {
+      AsyncSnapshot<List<Thought>> snap) {
     if (!snap.hasData) {
       return const Center(child: CircularProgressIndicator());
     }
@@ -201,9 +268,23 @@ class _HomePageState extends State<HomePage> {
       _visibleIds = list.map((t) => t.id).toList();
     }
     if (list.isEmpty) {
-      return searchInactive
+      if (_showArchived) {
+        return const EmptyState(
+          illus: 'empty_folder.png',
+          title: '还没有归档的随记',
+          subtitle: '长按随记可归档——「不做了，但不想删」',
+        );
+      }
+      if (_stageFilter != null) {
+        return const EmptyState(
+          illus: 'empty_home.png',
+          title: '这个状态还没有随记',
+          subtitle: '点卡片左下角的水滴，就能把随记推进到下一态',
+        );
+      }
+      return _query.isEmpty && _tagFilter == null
           ? const _EmptyState()
-          : _SearchEmpty(query: _query);
+          : _SearchEmpty(query: _query.isEmpty ? '该标签' : _query);
     }
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(T.pagePad, 8, T.pagePad, 96),
@@ -228,9 +309,75 @@ bool _listEquals(List<int> a, List<int> b) {
   return true;
 }
 
+/// 状态过滤 chip：比 ChoiceChip 更紧凑（36 高），带可选色点表示三态颜色。
+/// 用 InkWell 自绘而不是 ChoiceChip——过滤行要放 4-5 个 chip + 归档入口，
+/// 默认 ChoiceChip 的 padding 会挤掉最后一个。
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final Color? dotColor;
+  final IconData? icon;
+  final VoidCallback onTap;
+
+  const _FilterChip({
+    required this.label,
+    required this.selected,
+    this.dotColor,
+    this.icon,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final fg = selected
+        ? T.brandPrimary
+        : (isDark ? T.darkInkSecondary : T.inkSecondary);
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: InkWell(
+        borderRadius: BorderRadius.circular(999),
+        onTap: onTap,
+        child: Container(
+          height: 32,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: selected
+                ? T.brandPrimary.withValues(alpha: isDark ? 0.22 : 0.12)
+                : (isDark ? T.darkCardAlt : T.paperCardAlt),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(
+                color: selected
+                    ? T.brandPrimary.withValues(alpha: 0.5)
+                    : Colors.transparent),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            if (dotColor != null) ...[
+              Container(
+                width: 8,
+                height: 8,
+                decoration: BoxDecoration(color: dotColor, shape: BoxShape.circle),
+              ),
+              const SizedBox(width: 6),
+            ],
+            if (icon != null) ...[
+              Icon(icon, size: 13, color: fg),
+              const SizedBox(width: 4),
+            ],
+            Text(label,
+                style: TextStyle(
+                    fontSize: 12,
+                    color: fg,
+                    fontWeight: selected ? FontWeight.w600 : FontWeight.w500)),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
 /// 搜索无结果空态
-class _SearchEmpty extends StatelessWidget {
-  final String query;
+class _SearchEmpty extends StatelessWidget {  final String query;
   const _SearchEmpty({required this.query});
 
   @override
@@ -330,6 +477,11 @@ class _NoteCard extends StatelessWidget {
                                     size: 12, color: T.stageInProgress),
                                 const SizedBox(width: 4),
                               ],
+                              if (thought.isArchived) ...[
+                                const Icon(Icons.archive_outlined,
+                                    size: 12, color: T.inkTertiary),
+                                const SizedBox(width: 4),
+                              ],
                               Expanded(
                                 child: Text(
                                     thought.title.isEmpty
@@ -368,6 +520,11 @@ class _NoteCard extends StatelessWidget {
                         if (thought.isPinned) ...[
                           const Icon(Icons.push_pin,
                               size: 12, color: T.stageInProgress),
+                          const SizedBox(width: 4),
+                        ],
+                        if (thought.isArchived) ...[
+                          const Icon(Icons.archive_outlined,
+                              size: 12, color: T.inkTertiary),
                           const SizedBox(width: 4),
                         ],
                         Expanded(
@@ -485,6 +642,22 @@ class _NoteCard extends StatelessWidget {
               Navigator.pop(context);
             },
           ),
+          // 归档：介于「留着」和「删掉」之间的第三态——不做了但不想删，
+          // 不占列表、不进回收站（竞品分析指出 flomo/Keep 都缺这一档）
+          ListTile(
+            leading: Icon(thought.isArchived
+                ? Icons.unarchive_outlined
+                : Icons.archive_outlined),
+            title: Text(thought.isArchived ? '取消归档' : '归档'),
+            subtitle: Text(
+              thought.isArchived ? '放回灵感流' : '从列表移出，随时可在「归档」里找回',
+              style: const TextStyle(fontSize: 12, color: T.inkTertiary),
+            ),
+            onTap: () {
+              db.setArchived(thought.id, !thought.isArchived);
+              Navigator.pop(context);
+            },
+          ),
           ListTile(
             leading: const Icon(Icons.delete_outline, color: T.danger),
             title: const Text('删除', style: TextStyle(color: T.danger)),
@@ -538,6 +711,18 @@ class _BatchActionBar extends StatelessWidget {
               if (context.mounted) {
                 ScaffoldMessenger.of(context).showSnackBar(
                     SnackBar(content: Text('已置顶 ${ids.length} 条')));
+                onDone();
+              }
+            },
+          ),
+          _ActionItem(
+            icon: Icons.archive_outlined,
+            label: '归档',
+            onTap: () async {
+              await db.batchSetArchived(ids, true);
+              if (context.mounted) {
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('已归档 ${ids.length} 条（「归档」里可找回）')));
                 onDone();
               }
             },
@@ -717,7 +902,7 @@ class _ActionItem extends StatelessWidget {
       borderRadius: BorderRadius.circular(12),
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           Icon(icon, size: 22, color: color),
           const SizedBox(height: 2),

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="shortcut_capture_short">记一条</string>
+    <string name="shortcut_capture_long">记一条新随记</string>
+    <string name="shortcut_archive_short">归档</string>
+    <string name="shortcut_archive_long">查看已归档的随记</string>
+    <string name="widget_name">随想随记 · 记一条</string>
+    <string name="widget_description">在桌面直接记一条随记，不用打开应用</string>
+    <string name="widget_hint">点一下，记一条</string>
+    <string name="widget_label">记一条</string>
+</resources>

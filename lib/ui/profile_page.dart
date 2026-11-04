@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -25,12 +26,34 @@ class _ProfilePageState extends State<ProfilePage> {
   late final BackupService _backup = BackupService(appDb);
   int _versionTaps = 0; // 创意 ⑦-4：版本行 7 连击彩蛋计数
 
+  /// 通知栏常驻入口开关（竞品分析 P0 第二项）。
+  /// 状态存在 SharedPreferences，实际的通知由 Android 原生侧 setQuickEntry 通道管理。
+  bool _quickEntry = false;
+  static const _launchChannel = MethodChannel('suixiang/launch');
+
   @override
   void initState() {
     super.initState();
     SharedPreferences.getInstance().then((p) {
-      if (mounted) setState(() => _themeMode = p.getString('theme_mode') ?? 'system');
+      if (!mounted) return;
+      setState(() {
+        _themeMode = p.getString('theme_mode') ?? 'system';
+        _quickEntry = p.getBool('quick_entry_on') ?? false;
+      });
     });
+  }
+
+  Future<void> _toggleQuickEntry(bool on) async {
+    setState(() => _quickEntry = on);
+    final p = await SharedPreferences.getInstance();
+    await p.setBool('quick_entry_on', on);
+    try {
+      await _launchChannel.invokeMethod('setQuickEntry', {'enabled': on});
+    } on MissingPluginException {
+      // 桌面端没有通知栏；不打扰用户，仅在设置里保留开关状态
+    } on PlatformException {
+      // 权限被拒绝等情况：原生侧会静默失败，这里不弹错误打断记录
+    }
   }
 
   Future<void> _setThemeMode(String mode) async {
@@ -191,14 +214,26 @@ class _ProfilePageState extends State<ProfilePage> {
           ),
           _SectionHeader('整理', color: T.stageInspiration),
           Card(
-            child: ListTile(
-              leading: const Icon(Icons.label_outline, color: T.brandPrimary),
-              title: const Text('标签管理'),
-              subtitle: const Text('查看、重命名、换色、删除标签'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => Navigator.push(context,
-                  MaterialPageRoute(builder: (_) => TagManagePage(db: appDb))),
-            ),
+            child: Column(children: [
+              ListTile(
+                leading: const Icon(Icons.label_outline, color: T.brandPrimary),
+                title: const Text('标签管理'),
+                subtitle: const Text('查看、重命名、换色、删除标签'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => TagManagePage(db: appDb))),
+              ),
+              // 竞品分析 P0：捕捉入口不能只有 FAB——冷启动+解锁找图标 >5 秒，
+              // 「≤3 秒落库」不成立。桌面小部件已默认可用，这里补通知栏常驻。
+              SwitchListTile(
+                secondary:
+                    const Icon(Icons.notifications_active_outlined, color: T.brandPrimary),
+                title: const Text('通知栏常驻「记一条」'),
+                subtitle: const Text('下拉通知栏点一下就能写；不需要时可随时关掉'),
+                value: _quickEntry,
+                onChanged: _toggleQuickEntry,
+              ),
+            ]),
           ),
           _SectionHeader('数据', color: T.stageDone),
           Card(
