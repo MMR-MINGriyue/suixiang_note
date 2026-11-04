@@ -36,7 +36,9 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: suixiang_note-windows.zip
-          generate_release_notes: true
+          # 正文由仓库内 RELEASE_NOTES.md 提供：generate_release_notes 只会吐出
+          # 一条 compare 链接，等于没有说明。发版前记得改这个文件。
+          body_path: RELEASE_NOTES.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -73,6 +75,6 @@ jobs:
             build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk
             build/app/outputs/flutter-apk/app-x86_64-release.apk
             build/app/outputs/flutter-apk/app-release.apk
-          generate_release_notes: true
+          body_path: RELEASE_NOTES.md
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
