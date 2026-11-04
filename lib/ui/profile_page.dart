@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/app_info.dart';
 import '../core/reminder_service.dart';
 import '../data/backup_service.dart';
 import '../data/app_database.dart';
@@ -403,15 +404,18 @@ class _ProfilePageState extends State<ProfilePage> {
               ListTile(
                 leading: const Icon(Icons.water_drop_outlined, color: T.brandPrimary),
                 title: const Text('随想随记'),
-                subtitle: const Text('v1.0 · 本地优先 · 无账号无云同步'),
+                // 版本号来自 core/app_info.dart，与 pubspec.yaml 同源校验，
+                // 不再手写——之前这里写死「v1.0」，实际已经跑到 1.8 了。
+                subtitle: Text('v$kAppVersionShort · 本地优先 · 无账号无云同步'),
                 onTap: _onVersionTap,
               ),
               ListTile(
-                leading: const Icon(Icons.info_outline),
-                title: const Text('隐私说明'),
-                subtitle: const Text('所有数据仅保存在本机'),
-                onTap: () => _showSheet(context, '隐私说明',
-                    '随想随记不联网、不收集任何数据。\n全部随记、文件夹与设置仅存储于本机应用目录，你可以在「数据」中随时备份导出。'),
+                leading: const Icon(Icons.shield_outlined),
+                title: const Text('隐私与数据说明'),
+                // 这一行把最容易被误解的事写在了明面上：
+                // 电脑和手机是两套独立数据库，不自动同步。
+                subtitle: const Text('不联网 · 数据全在本机 · 各设备独立'),
+                onTap: () => _showPrivacySheet(context),
               ),
             ]),
           ),
@@ -450,19 +454,138 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  void _showSheet(BuildContext context, String title, String body) {    showModalBottomSheet<void>(
+  /// 隐私与数据说明：竞品分析点出的两个「预期管理」问题在这里一次性说清。
+  ///  1. Windows 与手机是两套独立数据库（不自动同步）——这是误解型数据事故的温床；
+  ///  2. 数据库是明文的——本机之外任何人拿到文件就能读。
+  /// 文案原则：不承诺做不到的事，也不吓唬人。说清「丢了会怎样」比说「很安全」有用。
+  void _showPrivacySheet(BuildContext context) {
+    showModalBottomSheet<void>(
       context: context,
+      isScrollControlled: true,
       shape: const RoundedRectangleBorder(
           borderRadius: BorderRadius.vertical(top: Radius.circular(T.rSheet))),
-      builder: (ctx) => Padding(
-        padding: const EdgeInsets.all(20),
-        child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(title, style: Theme.of(ctx).textTheme.titleLarge),
-          const SizedBox(height: 12),
-          Text(body),
-          const SizedBox(height: 20),
-        ]),
+      builder: (ctx) => DraggableScrollableSheet(
+        expand: false,
+        initialChildSize: 0.72,
+        maxChildSize: 0.92,
+        builder: (ctx, scroll) => ListView(
+          controller: scroll,
+          padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+          children: [
+            Center(
+              child: Container(
+                width: 32,
+                height: 4,
+                margin: const EdgeInsets.only(bottom: 16),
+                decoration: BoxDecoration(
+                  color: T.inkTertiary.withValues(alpha: 0.35),
+                  borderRadius: BorderRadius.circular(2),
+                ),
+              ),
+            ),
+            Text('隐私与数据说明', style: Theme.of(ctx).textTheme.titleLarge),
+            const SizedBox(height: 16),
+            _PrivacyBlock(
+              icon: Icons.wifi_off_outlined,
+              title: '不联网',
+              body: '这个应用没有任何网络请求。没有账号、没有登录、没有统计上报，'
+                  '也没有云端。写下的东西只落在这台设备的文件里。',
+            ),
+            _PrivacyBlock(
+              icon: Icons.devices_other_outlined,
+              title: '电脑和手机是两套独立数据',
+              body: '在电脑上记的内容不会出现在手机上，反之亦然。两边的备份文件也互相独立。\n\n'
+                  '这是刻意的设计（本地优先、零依赖），但它有一个真实代价：'
+                  '如果你以为它们在同步，可能在换设备后发现「东西不见了」。'
+                  '建议固定在一台主力设备上记录，需要迁移时用「数据 → 立即备份 / 恢复备份」手动搬。',
+              emphasis: true,
+            ),
+            _PrivacyBlock(
+              icon: Icons.lock_open_outlined,
+              title: '数据库是明文的',
+              body: '随记正文以明文存储在本地数据库文件中，没有加密。'
+                  '任何能访问这台设备文件的人（或拿到备份 JSON 文件的人）都可以直接读取内容。\n\n'
+                  '如果你会记录不适合被他人看到的内容，请自行妥善保管设备，'
+                  '并且不要把备份文件放在共享目录或同步盘里。',
+              emphasis: true,
+            ),
+            _PrivacyBlock(
+              icon: Icons.folder_outlined,
+              title: '数据在哪里',
+              body: '数据库：应用私有目录下的 $kDatabaseName.sqlite\n'
+                  '备份：$kBackupFolderName（在系统「文档」目录下，卸载应用不会被删除）\n\n'
+                  '备份保留最近 7 份，超出后按时间清理最旧的。',
+            ),
+            _PrivacyBlock(
+              icon: Icons.delete_outline,
+              title: '什么情况下数据会丢',
+              body: '· 卸载应用或清除应用数据 → 数据库消失，备份不消失\n'
+                  '· 手机丢失 / 损坏 / 重置 → 两者都可能消失，取决于是否有外部副本\n'
+                  '· 系统空间不足时应用被杀 → 不会丢（每次输入都会落库），但未保存的输入可能丢\n\n'
+                  '唯一可靠的自救方式是定期做备份，并把备份文件复制到设备之外（U 盘、'
+                  '你自己的网盘、另一台电脑）。',
+            ),
+            const SizedBox(height: 8),
+            Text('以上为应用当前的真实行为，不是免责声明模板。若与实际不符，'
+                '请以「数据」中的备份文件内容为准。',
+                style: TextStyle(fontSize: 12, color: T.inkTertiary, height: 1.6)),
+            const SizedBox(height: 20),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx),
+              child: const Text('知道了'),
+            ),
+          ],
+        ),
       ),
+    );
+  }
+}
+
+/// 隐私说明里的一段：图标 + 标题 + 正文
+/// emphasis=true 的段落用 warning 色描边——这两条是「容易误解成事故」的部分，
+/// 排版上必须比其它段落更显眼，否则用户会跳过。
+class _PrivacyBlock extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String body;
+  final bool emphasis;
+  const _PrivacyBlock({
+    required this.icon,
+    required this.title,
+    required this.body,
+    this.emphasis = false,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    return Container(
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: emphasis
+            ? T.warning.withValues(alpha: dark ? 0.10 : 0.07)
+            : (dark ? T.darkCardAlt : T.paperCardAlt),
+        borderRadius: BorderRadius.circular(14),
+        border: emphasis
+            ? Border.all(color: T.warning.withValues(alpha: 0.45), width: 1)
+            : null,
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Row(children: [
+          Icon(icon, size: 18, color: emphasis ? T.warning : T.inkSecondary),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(title,
+                style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: emphasis ? T.warning : null)),
+          ),
+        ]),
+        const SizedBox(height: 8),
+        Text(body, style: const TextStyle(fontSize: 13, height: 1.65)),
+      ]),
     );
   }
 }

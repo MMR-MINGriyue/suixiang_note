@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../core/app_info.dart';
 import 'app_database.dart';
 
 /// M5 安全网 —— 备份/恢复服务（PM+UX 评审共同点名的最大隐藏刚需）
@@ -27,7 +28,7 @@ class BackupService {
   /// 备份目录：用户可见
   Future<Directory> backupDir() async {
     final docs = (await getApplicationDocumentsDirectory()).path;
-    final dir = Directory(p.join(docs, 'suixiang_note_backups'));
+    final dir = Directory(p.join(docs, kBackupFolderName));
     if (!dir.existsSync()) dir.createSync(recursive: true);
     return dir;
   }
