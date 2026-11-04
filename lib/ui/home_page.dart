@@ -2,8 +2,10 @@ import 'dart:async';
 import 'dart:ui' as ui show TextDirection;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
+import '../core/format.dart';
 import '../core/pinyin_search.dart';
 import '../data/app_database.dart';
 import '../main.dart' show archivedRequestTicker;
@@ -517,8 +519,12 @@ class _NoteCard extends StatelessWidget {
     final isDark = theme.brightness == Brightness.dark;
     final preview = thought.content.replaceAll('\n', ' ');
     final previewText = _previewWindow(preview, highlight);
-    final timeText = DateFormat('MM/dd HH:mm')
-        .format(DateTime.fromMillisecondsSinceEpoch(thought.updatedAt));
+    // 时间标签：完成态显示「N 天前完成」——这是完成这件事唯一值得回看的信息，
+    // 比「最近改于几点」有用；其余状态仍按更新时间显示
+    final timeText = thought.completedAt != null
+        ? completedLabel(thought.completedAt)
+        : DateFormat('MM/dd HH:mm')
+            .format(DateTime.fromMillisecondsSinceEpoch(thought.updatedAt));
 
     // 置顶卡用品牌微色底拉开层级（创意 ①-3：色差代替加重投影）
     final pinnedBg = thought.isPinned
@@ -702,17 +708,19 @@ class _NoteCard extends StatelessWidget {
                         StreamBuilder<List<Stage>>(
                           stream: stagesStream,
                           builder: (context, sSnap) {
-                            final stage =
-                                stageOf(sSnap.data ?? const <Stage>[], thought);
+                            final stages = sSnap.data ?? const <Stage>[];
+                            final stage = stageOf(stages, thought);
                             return InkWell(
                               borderRadius: BorderRadius.circular(12),
-                              onTap: () => db.advanceStage(thought.id),
+                              onTap: () => _advance(context, stages, stage),
+                              onLongPress: () =>
+                                  _pickStage(context, stages, stage),
                               child: SizedBox(
                                 width: 44,
                                 height: 44,
                                 child: Center(
                                   child: Tooltip(
-                                    message: '${stage.name} · 点击推进',
+                                    message: '${stage.name} · 点击推进，长按选',
                                     child: DropBadge(
                                       kind: stage.kind,
                                       color: Color(int.parse(stage.color
@@ -733,11 +741,104 @@ class _NoteCard extends StatelessWidget {
     );
   }
 
+  /// 单击推进：落定后必须给出反馈，否则用户点完不知道有没有生效。
+  /// 反馈三件套——触觉（手感）+ SnackBar 带新状态名（确认）+ 撤回（误触兜底）。
+  Future<void> _advance(
+      BuildContext context, List<Stage> stages, Stage current) async {
+    final next = nextStageOf(stages, current.id);
+    if (next == null) return;
+    await db.advanceStage(thought.id);
+    if (!context.mounted) return;
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('${current.name} → ${next.name}'),
+      duration: const Duration(seconds: 3),
+      action: SnackBarAction(
+          label: '撤回',
+          onPressed: () => db.setStage(thought.id, current.id)),
+    ));
+  }
+
+  /// 长按水滴：三态直接选。比「点两圈退一步」快，也比拖动排序好理解。
+  Future<void> _pickStage(
+      BuildContext context, List<Stage> stages, Stage current) async {
+    if (stages.isEmpty) return;
+    final picked = await showModalBottomSheet<Stage>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(T.rSheet))),
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
+            child: Row(children: [
+              Text('这条算哪一步',
+                  style: Theme.of(ctx).textTheme.titleMedium),
+              const Spacer(),
+              Text('点一下即可换过去',
+                  style: TextStyle(fontSize: 11, color: T.inkTertiary)),
+            ]),
+          ),
+          ...stages.map((s) => ListTile(
+                leading: DropBadge(
+                    kind: s.kind,
+                    color: Color(int.parse(s.color.replaceFirst('#', '0xFF'))),
+                    size: 26),
+                title: Text(s.name,
+                    style: TextStyle(
+                        fontSize: 15,
+                        fontWeight:
+                            s.id == current.id ? FontWeight.w600 : FontWeight.w400,
+                        color: s.id == current.id ? T.brandPrimary : null)),
+                trailing: s.id == current.id
+                    ? const Icon(Icons.check, size: 18, color: T.brandPrimary)
+                    : null,
+                onTap: () => Navigator.pop(ctx, s),
+              )),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (picked == null || picked.id == current.id) return;
+    await db.setStage(thought.id, picked.id);
+    if (!context.mounted) return;
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('已改为「${picked.name}」'),
+      duration: const Duration(seconds: 3),
+      action: SnackBarAction(
+          label: '撤回',
+          onPressed: () => db.setStage(thought.id, current.id)),
+    ));
+  }
+
   void _showActions(BuildContext context) {
     showModalBottomSheet(
       context: context,
       builder: (_) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
+          // 推进：长按菜单里也留一个入口。水滴角标只有 44px，
+          // 手小的人容易点不准；菜单里这一行带状态名，认得出当前位置。
+          StreamBuilder<List<Stage>>(
+            stream: stagesStream,
+            builder: (context, sSnap) {
+              final stages = sSnap.data ?? const <Stage>[];
+              final stage = stageOf(stages, thought);
+              return ListTile(
+                leading: DropBadge(
+                    kind: stage.kind,
+                    color: Color(int.parse(stage.color.replaceFirst('#', '0xFF'))),
+                    size: 24),
+                title: Text('状态：${stage.name}'),
+                subtitle: const Text('点开可选推进 / 退回',
+                    style: TextStyle(fontSize: 12, color: T.inkTertiary)),
+                onTap: () {
+                  Navigator.pop(context);
+                  _pickStage(context, stages, stage);
+                },
+              );
+            },
+          ),
           ListTile(
             leading: Icon(thought.isPinned ? Icons.push_pin_outlined : Icons.push_pin),
             title: Text(thought.isPinned ? '取消置顶' : '置顶'),
@@ -807,6 +908,13 @@ class _BatchActionBar extends StatelessWidget {
             label: '移动到',
             onTap: () => _batchMove(context, ids),
           ),
+          // 批量改状态：整理时常见动作用途是「这一批都做完了」，
+          // 逐条点水滴要点 N 次，这里一次落定。
+          _ActionItem(
+            icon: Icons.water_drop_outlined,
+            label: '状态',
+            onTap: () => _batchStage(context, ids),
+          ),
           _ActionItem(
             icon: Icons.push_pin_outlined,
             label: '置顶',
@@ -858,6 +966,44 @@ class _BatchActionBar extends StatelessWidget {
     if (context.mounted) {
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
           content: Text('已为 ${ids.length} 条随记追加 ${picked.length} 个标签')));
+      onDone();
+    }
+  }
+
+  /// 批量改状态
+  Future<void> _batchStage(BuildContext context, List<int> ids) async {
+    final stages = await db.watchStages().first;
+    if (!context.mounted || stages.isEmpty) return;
+    final picked = await showModalBottomSheet<Stage>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(T.rSheet))),
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 6),
+            child: Row(children: [
+              Text('把 ${ids.length} 条改到',
+                  style: Theme.of(ctx).textTheme.titleMedium),
+            ]),
+          ),
+          ...stages.map((s) => ListTile(
+                leading: DropBadge(
+                    kind: s.kind,
+                    color: Color(int.parse(s.color.replaceFirst('#', '0xFF'))),
+                    size: 26),
+                title: Text(s.name, style: const TextStyle(fontSize: 15)),
+                onTap: () => Navigator.pop(ctx, s),
+              )),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (picked == null) return;
+    await db.batchSetStage(ids, picked.id);
+    if (context.mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('已把 ${ids.length} 条改为「${picked.name}」')));
       onDone();
     }
   }

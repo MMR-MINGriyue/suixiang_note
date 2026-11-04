@@ -1,0 +1,187 @@
+import 'dart:io';
+
+import 'package:drift/drift.dart' show Value;
+import 'package:drift/native.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
+import 'package:plugin_platform_interface/plugin_platform_interface.dart';
+import 'package:suixiang_note/core/format.dart';
+import 'package:suixiang_note/data/app_database.dart';
+
+class _FakePathProvider extends PathProviderPlatform
+    with MockPlatformInterfaceMixin {
+  _FakePathProvider(this.root);
+  final String root;
+
+  @override
+  Future<String?> getApplicationDocumentsPath() async => root;
+
+  @override
+  Future<String?> getApplicationSupportPath() async => root;
+
+  @override
+  Future<String?> getTemporaryPath() async => root;
+}
+
+void main() {
+  late Directory tmp;
+  late AppDatabase db;
+  var created = false;
+
+  setUpAll(() async {
+    tmp = await Directory.systemTemp.createTemp('suixiang_stage_');
+    PathProviderPlatform.instance = _FakePathProvider(tmp.path);
+  });
+
+  tearDownAll(() async {
+    if (created) await db.close();
+    if (tmp.existsSync()) await tmp.delete(recursive: true);
+  });
+
+  Future<void> freshDb() async {
+    if (created) await db.close();
+    db = AppDatabase.forTesting(NativeDatabase.memory());
+    created = true;
+    await db.select(db.stages).get(); // 触发 beforeOpen 种子
+  }
+
+  Future<int> seed(String content, {int stageId = 1}) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return db.into(db.thoughts).insert(ThoughtsCompanion.insert(
+          uuid: 'uuid-${content.hashCode}-$now',
+          title: Value(content),
+          content: Value(content),
+          stageId: stageId,
+          createdAt: now,
+          updatedAt: now,
+        ));
+  }
+
+  Future<Thought> get(int id) =>
+      (db.select(db.thoughts)..where((t) => t.id.equals(id))).getSingle();
+
+  group('纯函数', () {
+    test('nextStageOf 走 position 顺序并循环回到第一态', () async {
+      await freshDb();
+      final stages = await db.watchStages().first;
+      expect(nextStageOf(stages, 1)?.id, 2);
+      expect(nextStageOf(stages, 2)?.id, 3);
+      expect(nextStageOf(stages, 3)?.id, 1, reason: '循环对称');
+    });
+
+    test('prevStageOf 与 nextStageOf 互为反函数', () async {
+      await freshDb();
+      final stages = await db.watchStages().first;
+      for (final s in stages) {
+        final next = nextStageOf(stages, s.id)!;
+        expect(prevStageOf(stages, next.id)?.id, s.id);
+      }
+    });
+
+    test('stageById 找不到时回退第一态（不返回 null 崩界面）', () async {
+      await freshDb();
+      final stages = await db.watchStages().first;
+      expect(stageById(stages, 999)?.id, stages.first.id);
+    });
+
+    test('空 stages 一律返回 null', () {
+      expect(nextStageOf(const [], 1), isNull);
+      expect(prevStageOf(const [], 1), isNull);
+      expect(stageById(const [], 1), isNull);
+    });
+
+    test('completedLabel 覆盖今天/昨天/N 天前/跨月', () {
+      final now = DateTime(2026, 11, 4, 12);
+      int ts(DateTime d) => d.millisecondsSinceEpoch;
+      expect(completedLabel(null), '');
+      expect(completedLabel(ts(DateTime(2026, 11, 4, 9)), now: now), '今天完成');
+      expect(completedLabel(ts(DateTime(2026, 11, 3, 23)), now: now), '昨天完成');
+      expect(completedLabel(ts(DateTime(2026, 10, 28)), now: now), '7 天前完成');
+      expect(completedLabel(ts(DateTime(2026, 3, 4)), now: now), '2026/03/04 完成');
+    });
+  });
+
+  group('推进与落态', () {
+    test('advanceStage 返回落定的阶段，并按循环走', () async {
+      await freshDb();
+      final id = await seed('钢结构监造方案');
+      expect((await db.advanceStage(id))?.id, 2);
+      expect((await get(id)).stageId, 2);
+      expect((await db.advanceStage(id))?.id, 3);
+      expect((await db.advanceStage(id))?.id, 1, reason: '从已完成回到灵感');
+    });
+
+    test('进入完成态写 completedAt，离开时清空', () async {
+      await freshDb();
+      final id = await seed('写年度总结');
+      await db.advanceStage(id); // → 2
+      await db.advanceStage(id); // → 3
+      expect((await get(id)).completedAt, isNotNull);
+      await db.advanceStage(id); // → 1
+      expect((await get(id)).completedAt, isNull,
+          reason: '回到灵感后还挂着完成时间会误导');
+    });
+
+    test('previousStage 一步退回（不必绕两圈）', () async {
+      await freshDb();
+      final id = await seed('学 Flutter');
+      await db.advanceStage(id); // 2
+      await db.advanceStage(id); // 3
+      expect((await db.previousStage(id))?.id, 2);
+      expect((await get(id)).completedAt, isNull);
+    });
+
+    test('setStage 可一步跳到任意态', () async {
+      await freshDb();
+      final id = await seed('买相机');
+      expect((await db.setStage(id, 3))?.id, 3);
+      expect((await get(id)).completedAt, isNotNull);
+      expect((await db.setStage(id, 1))?.id, 1);
+      expect((await get(id)).completedAt, isNull);
+    });
+
+    test('setStage 同态不写库、不刷新 updatedAt', () async {
+      await freshDb();
+      final id = await seed('保持原样');
+      final before = await get(id);
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await db.setStage(id, 1);
+      final after = await get(id);
+      expect(after.updatedAt, before.updatedAt,
+          reason: '点当前态不该把「最近修改」顶上去');
+    });
+
+    test('setStage 传入不存在的阶段 id 不写库', () async {
+      await freshDb();
+      final id = await seed('别乱写');
+      expect(await db.setStage(id, 999), isNull);
+      expect((await get(id)).stageId, 1);
+    });
+
+    test('advanceStage 对不存在的随记返回 null 且不抛', () async {
+      await freshDb();
+      expect(await db.advanceStage(999999), isNull);
+    });
+
+    test('batchSetStage 一次改一批', () async {
+      await freshDb();
+      final a = await seed('A');
+      final b = await seed('B');
+      final c = await seed('C');
+      expect(await db.batchSetStage([a, b, c], 3), 3);
+      for (final id in [a, b, c]) {
+        final t = await get(id);
+        expect(t.stageId, 3);
+        expect(t.completedAt, isNotNull);
+      }
+    });
+
+    test('batchSetStage 空列表与非法态都不写库', () async {
+      await freshDb();
+      final id = await seed('X');
+      expect(await db.batchSetStage(const [], 3), 0);
+      expect(await db.batchSetStage([id], 999), 0);
+      expect((await get(id)).stageId, 1);
+    });
+  });
+}

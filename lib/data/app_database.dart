@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/format.dart';
 import '../core/pinyin_search.dart';
 import 'tables.dart';
 
@@ -242,18 +243,87 @@ class AppDatabase extends _$AppDatabase {
       (select(stages)..orderBy([(s) => OrderingTerm.asc(s.position)])).watch();
 
   /// 阶段推进：单击切下一态（循环），进入/离开「已完成」维护 completedAt（PRD §4.2）
-  Future<void> advanceStage(int thoughtId) async {
-    final all = await (select(stages)..orderBy([(s) => OrderingTerm.asc(s.position)])).get();
-    if (all.isEmpty) return;
-    final thought = await (select(thoughts)..where((t) => t.id.equals(thoughtId))).getSingle();
-    final idx = all.indexWhere((s) => s.id == thought.stageId);
-    final next = all[(idx + 1) % all.length];
+  ///
+  /// 返回落定的新阶段，供调用方做反馈（SnackBar 文案、触觉、撤销条）；
+  /// 原来返回 void，界面只能靠猜「应该变了吧」。
+  Future<Stage?> advanceStage(int thoughtId) async {
+    final all = await _orderedStages();
+    if (all.isEmpty) return null;
+    final thought = await _thoughtById(thoughtId);
+    if (thought == null) return null;
+    final next = nextStageOf(all, thought.stageId);
+    if (next == null) return null;
+    await _writeStage(thoughtId, next);
+    return next;
+  }
+
+  /// 退回上一态（长按 / 菜单用）。
+  ///
+  /// 单向循环逼得用户「已完成 → 灵感 → 推进中」绕两圈才能退一步，
+  /// UX 评审 B3 点名过；但这是个人工具，不是工作流引擎，
+  /// 与其做拖动排序不如把「反方向」直接给出来。
+  Future<Stage?> previousStage(int thoughtId) async {
+    final all = await _orderedStages();
+    if (all.isEmpty) return null;
+    final thought = await _thoughtById(thoughtId);
+    if (thought == null) return null;
+    final prev = prevStageOf(all, thought.stageId);
+    if (prev == null) return null;
+    await _writeStage(thoughtId, prev);
+    return prev;
+  }
+
+  /// 直接落到指定态（三态菜单 / 批量操作 / 撤销用）。
+  ///
+  /// 与 advanceStage 的区别：不猜「下一个是谁」，由调用方给定目标，
+  /// 因此同一条随记可以一步跳到「已完成」，也可以一步退回「灵感」。
+  /// [stageId] 不存在时返回 null 且不写库（脏输入不落库）。
+  Future<Stage?> setStage(int thoughtId, int stageId) async {
+    final all = await _orderedStages();
+    final target = stageById(all, stageId);
+    if (target == null || target.id != stageId) return null;
+    final thought = await _thoughtById(thoughtId);
+    if (thought == null) return null;
+    if (thought.stageId == stageId) return target; // 同态不写库、不更新 updatedAt
+    await _writeStage(thoughtId, target);
+    return target;
+  }
+
+  /// 批量落态；返回实际写入条数（同态被跳过的也计入，语义为「处理了」）
+  Future<int> batchSetStage(List<int> thoughtIds, int stageId) async {
+    if (thoughtIds.isEmpty) return 0;
+    final all = await _orderedStages();
+    final target = stageById(all, stageId);
+    if (target == null || target.id != stageId) return 0;
     final now = DateTime.now().millisecondsSinceEpoch;
-    await (update(thoughts)..where((t) => t.id.equals(thoughtId))).write(ThoughtsCompanion(
-      stageId: Value(next.id),
-      updatedAt: Value(now),
-      completedAt: Value(next.kind == 'done' ? now : null),
-    ));
+    await (update(thoughts)..where((t) => t.id.isIn(thoughtIds))).write(
+      ThoughtsCompanion(
+        stageId: Value(target.id),
+        updatedAt: Value(now),
+        completedAt: Value(target.kind == 'done' ? now : null),
+      ),
+    );
+    return thoughtIds.length;
+  }
+
+  /// 阶段全序（position 升序）；推进相关方法共用，避免各写一份 orderBy
+  Future<List<Stage>> _orderedStages() =>
+      (select(stages)..orderBy([(s) => OrderingTerm.asc(s.position)])).get();
+
+  Future<Thought?> _thoughtById(int thoughtId) =>
+      (select(thoughts)..where((t) => t.id.equals(thoughtId))).getSingleOrNull();
+
+  /// 落态写盘统一入口：completedAt 只在三态里那个 kind=='done' 的态上存在，
+  /// 离开它即清空——否则「3 天前完成」会跟着一条又变回灵感的随记跑。
+  Future<void> _writeStage(int thoughtId, Stage target) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await (update(thoughts)..where((t) => t.id.equals(thoughtId))).write(
+      ThoughtsCompanion(
+        stageId: Value(target.id),
+        updatedAt: Value(now),
+        completedAt: Value(target.kind == 'done' ? now : null),
+      ),
+    );
   }
 
   /// 置顶/取消置顶（v1.0 仅置顶，归档暂缓 —— PM 结论）

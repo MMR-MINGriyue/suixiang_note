@@ -1,12 +1,15 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
+import '../core/format.dart';
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
 import 'reminder_sheet.dart';
 import 'widgets/color_palette.dart';
+import 'widgets/drop_badge.dart';
 import 'widgets/empty_state.dart';
 
 /// 详情/编辑页：复用速记的自动落库逻辑（500ms 防抖），增加文件夹归属切换
@@ -66,45 +69,30 @@ class _DetailPageState extends State<DetailPage> {
           stream: db.watchStages(),
           builder: (context, sSnap) {
             final stages = sSnap.data ?? const <Stage>[];
-            Stage stage;
-            try {
-              stage = stages
-                  .firstWhere((s) => s.id == widget.thought.stageId);
-            } on StateError {
-              stage = stages.isNotEmpty
-                  ? stages.first
-                  : Stage(
-                      id: 1,
-                      name: '灵感',
-                      kind: 'inspiration',
-                      color: '#A8B9E6',
-                      position: 1.0,
-                      isSystem: true,
-                      createdAt: 0);
-            }
+            final stage = stageById(stages, widget.thought.stageId) ??
+                Stage(
+                    id: 1,
+                    name: '灵感',
+                    kind: 'inspiration',
+                    color: '#A8B9E6',
+                    position: 1.0,
+                    isSystem: true,
+                    createdAt: 0);
+            // 原来这里是「点一下自动推进到下一态」的隐藏开关：用户看得见
+            // 一滴水加一个 sync 图标，但不知道点一下会变成什么。改成点开
+            // 三态菜单，把「推进」和「直接选」都摆在明面上。
             return InkWell(
               borderRadius: BorderRadius.circular(8),
-              onTap: () async {
-                await db.advanceStage(widget.thought.id);
-                if (context.mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                      content: Text('已推进到「${_nextStageName(stages, stage)}」'),
-                      duration: const Duration(seconds: 1)));
-                }
-              },
+              onTap: () => _pickStage(context, stages, stage),
               child: Padding(
                 padding:
                     const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                 child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  Icon(Icons.water_drop,
-                      size: 16,
-                      color: Color(int.parse(
-                          stage.color.replaceFirst('#', '0xFF')))),
+                  DropBadge(kind: stage.kind, color: hexToColor(stage.color), size: 18),
                   const SizedBox(width: 6),
-                  Text(stage.name,
-                      style: const TextStyle(fontSize: 14)),
+                  Text(stage.name, style: const TextStyle(fontSize: 14)),
                   const SizedBox(width: 4),
-                  const Icon(Icons.sync_alt, size: 14, color: T.inkSecondary),
+                  const Icon(Icons.expand_more, size: 16, color: T.inkSecondary),
                 ]),
               ),
             );
@@ -187,11 +175,74 @@ class _DetailPageState extends State<DetailPage> {
     );
   }
 
-  String _nextStageName(List<Stage> stages, Stage current) {
-    if (stages.isEmpty) return '';
-    final idx = stages.indexWhere((s) => s.id == current.id);
-    return stages[(idx + 1) % stages.length].name;
+  /// 三态选择面板：列出当前所有阶段，选中即落库并弹撤销条。
+  ///
+  /// 用 bottom sheet 而不是 PopupMenu：手机上一行一个 48px 的行，
+  /// 三态各带水滴徽章和一句「什么意思」，比小箭头菜单好点也好懂。
+  Future<void> _pickStage(
+      BuildContext context, List<Stage> stages, Stage current) async {
+    if (stages.isEmpty) return;
+    final picked = await showModalBottomSheet<Stage>(
+      context: context,
+      shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(T.rSheet))),
+      builder: (ctx) => SafeArea(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 20, 20, 8),
+            child: Row(children: [
+              Text('推进到哪一步', style: Theme.of(ctx).textTheme.titleMedium),
+              const Spacer(),
+              Text('${stages.length} 个状态',
+                  style: const TextStyle(fontSize: 11, color: T.inkTertiary)),
+            ]),
+          ),
+          ...stages.map((s) {
+            final active = s.id == current.id;
+            return ListTile(
+              leading: DropBadge(
+                  kind: s.kind, color: hexToColor(s.color), size: 26),
+              title: Text(s.name,
+                  style: TextStyle(
+                      fontSize: 15,
+                      fontWeight: active ? FontWeight.w600 : FontWeight.w400,
+                      color: active ? T.brandPrimary : null)),
+              subtitle: Text(_stageHint(s.kind),
+                  style: const TextStyle(fontSize: 12, color: T.inkTertiary)),
+              trailing: active
+                  ? const Icon(Icons.check, size: 18, color: T.brandPrimary)
+                  : null,
+              onTap: () => Navigator.pop(ctx, s),
+            );
+          }),
+          const SizedBox(height: 8),
+        ]),
+      ),
+    );
+    if (picked == null || picked.id == current.id) return;
+    final before = current;
+    await widget.db.setStage(widget.thought.id, picked.id);
+    if (!context.mounted) return;
+    HapticFeedback.mediumImpact();
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text('已改为「${picked.name}」'),
+      duration: const Duration(seconds: 3),
+      // 误触兜底：直接落态比「点一下循环」更容易点错目标，
+      // 所以必须给一个明确的反悔入口，而不是让用户自己再点回去
+      action: SnackBarAction(
+          label: '撤回',
+          onPressed: () {
+            widget.db.setStage(widget.thought.id, before.id);
+          }),
+    ));
   }
+
+  static String _stageHint(String kind) => switch (kind) {
+        'inspiration' => '刚冒出来的念头，还没动手',
+        'in_progress' => '正在做，需要推进',
+        'done' => '已经落定，不再占注意力',
+        _ => '',
+      };
 
   /// 标签编辑面板：勾选已有标签 + 内联新建，确认后替换式写回
   Future<void> _editTags(BuildContext context) async {
@@ -468,6 +519,24 @@ class _MetaBar extends StatelessWidget {
             );
           },
         ),
+        // 完成时间行：completedAt 从 v1.0 就在写，但界面一直没用过。
+        // 「这件事什么时候做完的」是推进主线唯一的回顾价值。
+        if (thought.completedAt != null)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(children: [
+              const Icon(Icons.check_circle_outline,
+                  size: 14, color: T.stageDone),
+              const SizedBox(width: 6),
+              Text(completedLabel(thought.completedAt),
+                  style:
+                      const TextStyle(fontSize: 11, color: T.stageDone)),
+              const SizedBox(width: 8),
+              Text('（${shortAgeLabel(thought.completedAt)}落定）',
+                  style:
+                      const TextStyle(fontSize: 10, color: T.inkTertiary)),
+            ]),
+          ),
         // 文件夹 + 时间戳行
         Row(children: [          StreamBuilder<List<FolderWithCount>>(
             stream: db.watchFoldersWithCount(),

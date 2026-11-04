@@ -527,22 +527,34 @@ class _BrandHeader extends StatelessWidget {
             ),
           ),
           // 三态计数（StreamBuilder 长连一条 watchList；量级小可接受）
+          // 按 stage.kind 判而非硬编码 stageId==2/3：种子 id 恰好是 1/2/3，
+          // 但换库/导入后 id 不保证，写死等于埋一个只在分享备份时才爆的雷。
           StreamBuilder<List<Thought>>(
             stream: db.watchList(),
             builder: (context, snap) {
               final list = snap.data ?? const <Thought>[];
-              final total = list.length;
-              final inProgress =
-                  list.where((t) => t.stageId == 2).length;
-              final done = list.where((t) => t.stageId == 3).length;
-              return Row(
-                children: [
-                  _Stat(value: total, label: '全部'),
-                  _statDivider(),
-                  _Stat(value: inProgress, label: '推进'),
-                  _statDivider(),
-                  _Stat(value: done, label: '完成'),
-                ],
+              return StreamBuilder<List<Stage>>(
+                stream: db.watchStages(),
+                builder: (context, stageSnap) {
+                  final stages = stageSnap.data ?? const <Stage>[];
+                  int countOf(String kind) {
+                    final ids = stages
+                        .where((s) => s.kind == kind)
+                        .map((s) => s.id)
+                        .toSet();
+                    return list.where((t) => ids.contains(t.stageId)).length;
+                  }
+
+                  return Row(
+                    children: [
+                      _Stat(value: list.length, label: '全部'),
+                      _statDivider(),
+                      _Stat(value: countOf('in_progress'), label: '推进'),
+                      _statDivider(),
+                      _Stat(value: countOf('done'), label: '完成'),
+                    ],
+                  );
+                },
               );
             },
           ),
