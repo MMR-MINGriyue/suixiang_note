@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/launch_intent.dart';
+import 'core/pinyin_search.dart';
 import 'core/reminder_service.dart';
 import 'data/app_database.dart';
 import 'theme/tokens.dart';
@@ -16,6 +17,8 @@ import 'ui/quick_capture_sheet.dart';
 /// v1.5：外部入口（桌面小部件 / 通知栏常驻 / 系统分享 / 深链）直达速记
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // 拼音首字母表：21KB，一次读入常驻内存。失败不阻塞启动（搜索退化为字面匹配）
+  await PinyinSearch.ensureLoaded();
   final prefs = await SharedPreferences.getInstance();
   final themeMode = switch (prefs.getString('theme_mode') ?? 'system') {
     'light' => ThemeMode.light,

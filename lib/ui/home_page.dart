@@ -4,6 +4,7 @@ import 'dart:ui' as ui show TextDirection;
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../core/pinyin_search.dart';
 import '../data/app_database.dart';
 import '../main.dart' show archivedRequestTicker;
 import '../theme/tokens.dart';
@@ -13,6 +14,7 @@ import 'detail_page.dart';
 import 'trash_page.dart';
 import 'widgets/drop_badge.dart';
 import 'widgets/empty_state.dart';
+import 'widgets/highlight_text.dart';
 
 /// 首页「灵感流」：搜索栏 + 置顶优先列表；单击水滴切三态（主线 C：1 次点击推进）
 class HomePage extends StatefulWidget {
@@ -135,7 +137,7 @@ class _HomePageState extends State<HomePage> {
               onChanged: _onSearchChanged,
               decoration: InputDecoration(
                 isDense: true,
-                hintText: '搜索随记…',
+                hintText: '搜索随记，或拼音首字母…',
                 // 创意 ①-5：搜索框降级为背景层——paperCardAlt 填充 + radius 14，不抢主层
                 filled: true,
                 fillColor: Theme.of(context).brightness == Brightness.dark
@@ -241,7 +243,9 @@ class _HomePageState extends State<HomePage> {
             // 单流驱动：搜索 / 标签 / 状态 / 归档 任意组合都走 watchFeed
             child: StreamBuilder<List<Thought>>(
               stream: _showArchived
-                  ? db.watchArchived(stageId: _stageFilter)
+                  ? db.watchArchived(
+                      stageId: _stageFilter,
+                      query: _query.isEmpty ? null : _query)
                   : db.watchFeed(
                       query: _query.isEmpty ? null : _query,
                       tagId: _tagFilter,
@@ -298,6 +302,7 @@ class _HomePageState extends State<HomePage> {
           db: db,
           thought: list[i],
           stagesStream: db.watchStages(),
+          highlight: _query,
           multiSelect: _multiSelect,
           selected: _selected.contains(list[i].id),
           onToggleSelect: () => _toggleSelect(list[i].id)),
@@ -458,6 +463,9 @@ class _SearchEmpty extends StatelessWidget {  final String query;
         const Icon(Icons.search_off, size: 44, color: T.inkTertiary),
         const SizedBox(height: 12),
         Text('没有包含「$query」的随记', style: Theme.of(context).textTheme.titleMedium),
+        const SizedBox(height: 6),
+        const Text('试试更短的关键词，或换成拼音首字母（如 sg → 手工）',
+            style: TextStyle(fontSize: 12, color: T.inkTertiary)),
       ]),
     );
   }
@@ -473,21 +481,42 @@ class _NoteCard extends StatelessWidget {
   final bool selected;
   final VoidCallback onToggleSelect;
 
+  /// 当前搜索词，用于标题/预览的高亮（空串=不高亮）
+  final String highlight;
+
   const _NoteCard({
     required this.db,
     required this.thought,
     required this.stagesStream,
+    this.highlight = '',
     this.multiSelect = false,
     this.selected = false,
     required this.onToggleSelect,
   });
+
+  /// 预览窗口：默认取正文前 60 字；但若命中位置在窗口之外，就把窗口
+  /// 挪到命中处前面若干字 —— 否则用户搜「xxx」却看到一张一个 xxx 都没有的卡，
+  /// 只能怀疑搜索坏了。
+  static String _previewWindow(String body, String query) {
+    const width = 60;
+    if (body.length <= width) return body;
+    final q = query.trim();
+    if (q.isEmpty) return body.substring(0, width);
+    final ranges = PinyinSearch.ranges(body, q);
+    if (ranges.isEmpty || ranges.first.start < width) {
+      return body.substring(0, width);
+    }
+    final start = ranges.first.start - 20;
+    final end = start + width;
+    return '…${body.substring(start, end > body.length ? body.length : end)}';
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final isDark = theme.brightness == Brightness.dark;
     final preview = thought.content.replaceAll('\n', ' ');
-    final previewText = preview.length > 60 ? preview.substring(0, 60) : preview;
+    final previewText = _previewWindow(preview, highlight);
     final timeText = DateFormat('MM/dd HH:mm')
         .format(DateTime.fromMillisecondsSinceEpoch(thought.updatedAt));
 
@@ -554,10 +583,11 @@ class _NoteCard extends StatelessWidget {
                                 const SizedBox(width: 4),
                               ],
                               Expanded(
-                                child: Text(
+                                child: HighlightText(
                                     thought.title.isEmpty
                                         ? '(无标题)'
                                         : thought.title,
+                                    query: highlight,
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.titleSmall),
@@ -570,7 +600,8 @@ class _NoteCard extends StatelessWidget {
                           ),
                           if (previewText.isNotEmpty) ...[
                             const SizedBox(height: 4),
-                            Text(previewText,
+                            HighlightText(previewText,
+                                query: highlight,
                                 maxLines: 2,
                                 overflow: TextOverflow.ellipsis,
                                 style: theme.textTheme.bodySmall
@@ -599,10 +630,11 @@ class _NoteCard extends StatelessWidget {
                           const SizedBox(width: 4),
                         ],
                         Expanded(
-                          child: Text(
+                          child: HighlightText(
                               thought.title.isEmpty
                                   ? '(无标题)'
                                   : thought.title,
+                              query: highlight,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: theme.textTheme.titleSmall),
@@ -616,7 +648,8 @@ class _NoteCard extends StatelessWidget {
                     if (previewText.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       // 层级二：预览文字（置顶卡加深一档，创意 ①-3）
-                      Text(previewText,
+                      HighlightText(previewText,
+                          query: highlight,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: theme.textTheme.bodySmall?.copyWith(

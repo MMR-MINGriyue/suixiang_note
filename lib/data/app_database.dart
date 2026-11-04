@@ -4,6 +4,7 @@ import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:uuid/uuid.dart';
 
+import '../core/pinyin_search.dart';
 import 'tables.dart';
 
 part 'app_database.g.dart';
@@ -115,29 +116,31 @@ class AppDatabase extends _$AppDatabase {
   ///
   /// 之前首页按「有无标签过滤」分成两条 StreamBuilder 分支，状态过滤一加就变成
   /// 2×N 分支；收成一个方法后，任意组合都只有一条流，状态也少一份。
+  ///
+  /// **搜索为什么全部放到内存里做**：v1.8 起搜索要支持拼音首字母（「sg」找
+  /// 「手工」），而 SQLite 的 LIKE 只认字面。SQL 层先按归档/软删/标签收窄，
+  /// 再由 [PinyinSearch.matchesAny] 统一判定字面 + 首字母。这样还顺手消灭了一个
+  /// 老隐患：原来无标签走 SQL LIKE、有标签走 Dart `contains`，两条路径大小写与
+  /// 通配符语义并不一致，同一次搜索在两种筛选下结果会不同。
   Stream<List<Thought>> watchFeed({
     bool archived = false,
     String? query,
     int? tagId,
     int? stageId,
   }) {
-    final pattern = _escapeLike(query);
-    final rawQuery = query?.trim();
+    final q = query?.trim() ?? '';
 
     if (tagId == null) {
       return (select(thoughts)
-            ..where((t) {
-              var expr = t.deletedAt.isNull() & t.isArchived.equals(archived);
-              if (pattern != null) expr = expr & _matches(t, pattern);
-              if (stageId != null) expr = expr & t.stageId.equals(stageId);
-              return expr;
-            })
+            ..where((t) =>
+                t.deletedAt.isNull() & t.isArchived.equals(archived))
             ..orderBy([
               (t) => OrderingTerm.desc(t.isPinned),
               (t) => OrderingTerm.desc(t.pinnedAt),
               (t) => OrderingTerm.desc(t.updatedAt),
             ]))
-          .watch();
+          .watch()
+          .map((list) => _narrow(list, q, stageId));
     }
 
     // 有标签过滤 → inner join；join 查询的 orderBy 收 List<OrderingTerm>
@@ -152,25 +155,26 @@ class AppDatabase extends _$AppDatabase {
         OrderingTerm.desc(thoughts.pinnedAt),
         OrderingTerm.desc(thoughts.updatedAt),
       ]);
-    return joinQuery.watch().map((rows) {
-      final list = rows.map((r) => r.readTable(thoughts)).toList();
-      // join 后无法在 SQL 层叠 LIKE/状态（drift join where 已用掉），在内存里收窄；
-      // 标签命中集通常几十条，代价可忽略。
-      return list.where((t) {
-        if (stageId != null && t.stageId != stageId) return false;
-        if (rawQuery != null &&
-            rawQuery.isNotEmpty &&
-            !t.title.contains(rawQuery) &&
-            !t.content.contains(rawQuery)) {
-          return false;
-        }
-        return true;
-      }).toList();
-    });
+    return joinQuery.watch().map((rows) =>
+        _narrow(rows.map((r) => r.readTable(thoughts)).toList(), q, stageId));
+  }
+
+  /// 状态 + 查询的内存收窄（两条分支共用，保证语义一致）
+  static List<Thought> _narrow(List<Thought> list, String query, int? stageId) {
+    if (stageId == null && query.isEmpty) return list;
+    return list.where((t) {
+      if (stageId != null && t.stageId != stageId) return false;
+      if (query.isEmpty) return true;
+      return PinyinSearch.matchesAny(t.title, t.content, query);
+    }).toList();
   }
 
   /// 归档流：isArchived = true 且未删（「不做了但别删」的归处，区别于回收站）
-  Stream<List<Thought>> watchArchived({int? stageId}) {
+  ///
+  /// [query] 与主信息流同一套判定（[PinyinSearch]），否则在归档视图里搜索框
+  /// 依然可见却毫无反应——那比没有搜索框更让人困惑。
+  Stream<List<Thought>> watchArchived({int? stageId, String? query}) {
+    final q = query?.trim() ?? '';
     return (select(thoughts)
           ..where((t) {
             var expr = t.deletedAt.isNull() & t.isArchived.equals(true);
@@ -178,7 +182,8 @@ class AppDatabase extends _$AppDatabase {
             return expr;
           })
           ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
-        .watch();
+        .watch()
+        .map((list) => _narrow(list, q, null));
   }
 
   /// 归档 / 取消归档。归档时顺手清置顶：归档意味着「不再关心」，
