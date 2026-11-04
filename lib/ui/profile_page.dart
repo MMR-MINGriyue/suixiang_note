@@ -12,6 +12,7 @@ import '../data/app_database.dart';
 import '../main.dart' show appDb, themeModeNotifier;
 import '../theme/tokens.dart';
 import 'daily_review_page.dart';
+import 'graph_page.dart';
 import 'tag_manage_page.dart';
 import 'widgets/drop_badge.dart';
 
@@ -271,6 +272,16 @@ class _ProfilePageState extends State<ProfilePage> {
                     ),
                   );
                 },
+              ),
+              // 关系图谱入口：整理组里唯一的「看整体」的视图，
+              // 另外三个都是「逐条改」的工具
+              ListTile(
+                leading: const Icon(Icons.hub_outlined, color: T.stageDone),
+                title: const Text('关系图谱'),
+                subtitle: const Text('看随记之间连成了什么形状'),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => Navigator.push(context,
+                    MaterialPageRoute(builder: (_) => GraphPage(db: appDb))),
               ),
               // 竞品分析 P0：捕捉入口不能只有 FAB——冷启动+解锁找图标 >5 秒，
               // 「≤3 秒落库」不成立。桌面小部件已默认可用，这里补通知栏常驻。

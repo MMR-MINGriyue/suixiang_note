@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../core/edit_history.dart';
 import '../core/format.dart';
 import '../core/markdown_edit.dart';
+import '../core/outline.dart';
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
 import 'reminder_sheet.dart';
@@ -15,6 +16,7 @@ import 'widgets/drop_badge.dart';
 import 'widgets/edit_toolbar.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/find_replace_sheet.dart';
+import 'widgets/link_sheet.dart';
 import 'widgets/markdown_preview.dart';
 
 /// 详情/编辑页：复用速记的自动落库逻辑（500ms 防抖），增加文件夹归属切换
@@ -53,17 +55,33 @@ class _DetailPageState extends State<DetailPage> {
   bool _hasReminder = false;
   StreamSubscription<List<Reminder>>? _reminderSub;
 
+  /// 关联数量，同样因为 itemBuilder 拿不到 Stream
+  int _linkCount = 0;
+  StreamSubscription<List<LinkedThought>>? _linkSub;
+
+  /// 当前正文解析出的小节（写一次解析一次；只有标题行变化才真的变）
+  List<DocSection> _sections = const [];
+
+  /// 光标当前所在小节，用于目录高亮
+  int _caretSection = -1;
+
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.thought.content);
     _wordCount = widget.thought.content.replaceAll(RegExp(r'\s'), '').length;
     _history = EditHistory(widget.thought.content);
+    _sections = Outline.parse(widget.thought.content);
     _reminderSub = widget.db
         .watchActiveReminderOf(widget.thought.id)
         .listen((list) {
       final has = list.isNotEmpty;
       if (has != _hasReminder && mounted) setState(() => _hasReminder = has);
+    });
+    _linkSub = widget.db.watchLinksOf(widget.thought.id).listen((list) {
+      if (list.length != _linkCount && mounted) {
+        setState(() => _linkCount = list.length);
+      }
     });
   }
 
@@ -80,6 +98,7 @@ class _DetailPageState extends State<DetailPage> {
     _debounce?.cancel();
     _flushPendingSave();
     _reminderSub?.cancel();
+    _linkSub?.cancel();
     _focusNode.dispose();
     _controller.dispose();
     super.dispose();
@@ -91,11 +110,192 @@ class _DetailPageState extends State<DetailPage> {
       _history.record(text, _controller.selection);
       _canUndo = _history.canUndo;
       _canRedo = _history.canRedo;
+      _sections = Outline.parse(text);
+      _caretSection = _indexOfSectionAt(_sections, _controller.selection.start);
     });
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
       widget.db.saveDraft(id: widget.thought.id, content: text);
     });
+    _maybeContinueList(text);
+  }
+
+  /// 检测「用户刚敲了一个回车」，并在列表/待办/引用行后面自动续上同样的前缀。
+  ///
+  /// 为什么不在 onSubmitted 里做：`maxLines: null` 的多行 TextField 里
+  /// 回车是换行而不是提交，onSubmitted 根本不会触发。只能在文本变化时
+  /// 看「是不是刚好插入了一个 \n」。
+  void _maybeContinueList(String text) {
+    final sel = _controller.selection;
+    if (!sel.isValid || !sel.isCollapsed) return;
+    final caret = sel.start;
+    // 光标必须在刚插入的换行之后
+    if (caret == 0 || text[caret - 1] != '\n') return;
+    // 只处理「上一行有列表标记」的情况，普通段落回车不加东西
+    final prevEnd = caret - 1;
+    final prevStart = prevEnd == 0 ? 0 : text.lastIndexOf('\n', prevEnd - 1) + 1;
+    final prevLine = text.substring(prevStart, prevEnd);
+    if (prevLine.trim().isEmpty) return;
+
+    final m = RegExp(r'^(\s*)(- \[[ x]\] |- |\d+\. |> )(.*)$').firstMatch(prevLine);
+    if (m == null) return;
+    final indent = m.group(1)!;
+    final marker = m.group(2)!;
+    final body = m.group(3)!;
+    if (body.trim().isEmpty) return; // 空项目后面回车 → 不再续
+
+    final next = marker.startsWith('- [x]') || marker.startsWith('- [ ]')
+        ? '- [ ] '
+        : (RegExp(r'^\d+\.\s?$').hasMatch(marker.trimRight())
+            ? '${int.parse(marker.trimRight().replaceAll('.', '')) + 1}. '
+            : marker);
+    final insert = '$indent$next';
+    _applyEdit(EditResult(
+      text.replaceRange(caret, caret, insert),
+      TextSelection.collapsed(offset: caret + insert.length),
+    ), coalesce: true);
+  }
+
+  /// 光标当前落在第几个小节（-1 = 在第一个标题之前）
+  static int _indexOfSectionAt(List<DocSection> sections, int caret) {
+    var hit = -1;
+    for (var i = 0; i < sections.length; i++) {
+      if (sections[i].offset <= caret) {
+        hit = i;
+      } else {
+        break;
+      }
+    }
+    return hit;
+  }
+
+  /// 跳到某一节：把光标放到标题行首尾之间的整行选区内，
+  /// 用户可以直接改标题，也能立刻看到那一节的内容。
+  void _jumpToSection(DocSection s) {
+    _controller.selection = Outline.selectionFor(_controller.text, s);
+    setState(() => _caretSection = _sections.indexOf(s));
+    if (!_focusMode) _focusNode.requestFocus();
+  }
+
+  void _openOutline() {
+    final dark = Theme.of(context).brightness == Brightness.dark;
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) => Container(
+        constraints: BoxConstraints(
+            maxHeight: MediaQuery.of(ctx).size.height * 0.7),
+        decoration: BoxDecoration(
+          color: dark ? T.darkBg : T.paperBg,
+          borderRadius:
+              const BorderRadius.vertical(top: Radius.circular(T.rSheet)),
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(height: 10),
+          Container(
+            width: 32,
+            height: 4,
+            decoration: BoxDecoration(
+              color: T.inkTertiary.withValues(alpha: 0.35),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 6),
+            child: Row(children: [
+              const Expanded(
+                child: Text('目录',
+                    style:
+                        TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+              ),
+              Text('${_sections.length} 节',
+                  style:
+                      const TextStyle(fontSize: 11, color: T.inkTertiary)),
+            ]),
+          ),
+          Flexible(
+            child: _sections.isEmpty
+                ? Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 40),
+                    child: Column(children: [
+                      Icon(Icons.format_list_bulleted,
+                          size: 28,
+                          color: T.inkTertiary.withValues(alpha: 0.5)),
+                      const SizedBox(height: 10),
+                      const Text('这篇还没有分节',
+                          style: TextStyle(
+                              fontSize: 13.5, fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 6),
+                      Text('在正文里写「# 标题」就会自动生成一节，\n最多三级。',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                              fontSize: 12,
+                              height: 1.6,
+                              color:
+                                  dark ? T.darkInkSecondary : T.inkSecondary)),
+                    ]),
+                  )
+                : ListView.builder(
+                    shrinkWrap: true,
+                    padding: const EdgeInsets.only(bottom: 24),
+                    itemCount: _sections.length,
+                    itemBuilder: (c, i) {
+                      final s = _sections[i];
+                      final active = i == _caretSection;
+                      return InkWell(
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _jumpToSection(s);
+                        },
+                        child: Padding(
+                          padding: EdgeInsets.fromLTRB(
+                              16 + Outline.indentOf(s), 9, 16, 9),
+                          child: Row(children: [
+                            Container(
+                              width: 3,
+                              height: 16,
+                              margin: const EdgeInsets.only(right: 10),
+                              decoration: BoxDecoration(
+                                color: active
+                                    ? T.brandPrimary
+                                    : Colors.transparent,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            Expanded(
+                              child: Text(
+                                s.displayTitle,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: s.level == 1 ? 13.5 : 12.5,
+                                  fontWeight: s.level == 1
+                                      ? FontWeight.w600
+                                      : FontWeight.w500,
+                                  color: active
+                                      ? T.brandPrimary
+                                      : (dark
+                                          ? T.darkInkPrimary
+                                          : T.inkPrimary),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              s.bodyLength > 0 ? '${s.bodyLength} 字' : '',
+                              style: const TextStyle(
+                                  fontSize: 10, color: T.inkTertiary),
+                            ),
+                          ]),
+                        ),
+                      );
+                    },
+                  ),
+          ),
+        ]),
+      ),
+    );
   }
 
   /// 把一次纯函数变换的结果套回界面：文本 + 光标 + 历史帧 + 落库
@@ -107,6 +307,8 @@ class _DetailPageState extends State<DetailPage> {
       _history.record(r.text, r.selection, coalesce: coalesce);
       _canUndo = _history.canUndo;
       _canRedo = _history.canRedo;
+      _sections = Outline.parse(r.text);
+      _caretSection = _indexOfSectionAt(_sections, r.selection.start);
     });
     // 格式操作是一次完整动作，立刻落库，不等防抖
     _debounce = Timer(const Duration(milliseconds: 500), () {
@@ -256,7 +458,15 @@ class _DetailPageState extends State<DetailPage> {
                       ),
               ),
               if (!_previewing && !_focusMode)
-                _MetaBar(db: db, thought: widget.thought),
+                _MetaBar(
+                  db: db,
+                  thought: widget.thought,
+                  sections: _sections,
+                  linkCount: _linkCount,
+                  onOpenLinks: () =>
+                      LinkSheet.open(context, widget.db, widget.thought),
+                  onOpenOutline: _sections.isEmpty ? null : _openOutline,
+                ),
               // 工具条：专注模式下也保留（专注是要写，不是要藏工具）
               if (!_previewing)
                 EditToolbar(
@@ -337,6 +547,17 @@ class _DetailPageState extends State<DetailPage> {
         },
       ),
       actions: [
+        // 目录：只在有分节时出现，没有分节的短文不该多一个按钮
+        if (_sections.isNotEmpty)
+          IconButton(
+            icon: Badge(
+              isLabelVisible: false,
+              smallSize: 6,
+              child: const Icon(Icons.format_list_bulleted),
+            ),
+            tooltip: '目录（${_sections.length} 节）',
+            onPressed: _openOutline,
+          ),
         // 预览 / 编辑切换
         IconButton(
           icon: Icon(_previewing ? Icons.edit_outlined : Icons.visibility_outlined),
@@ -360,6 +581,8 @@ class _DetailPageState extends State<DetailPage> {
                 await ReminderSheet.open(context, widget.db, widget.thought);
               case 'tag':
                 await _editTags(context);
+              case 'link':
+                await LinkSheet.open(context, widget.db, widget.thought);
               case 'folder':
                 await _pickFolder(context);
               case 'delete':
@@ -392,6 +615,18 @@ class _DetailPageState extends State<DetailPage> {
                 contentPadding: EdgeInsets.zero,
                 leading: Icon(Icons.label_outline, size: 20),
                 title: Text('标签'),
+              ),
+            ),
+            PopupMenuItem(
+              value: 'link',
+              child: ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                    _linkCount > 0 ? Icons.hub : Icons.add_link,
+                    size: 20,
+                    color: _linkCount > 0 ? T.brandPrimary : null),
+                title: Text(_linkCount > 0 ? '关联（$_linkCount 条）' : '关联到别的随记'),
               ),
             ),
             const PopupMenuItem(
@@ -691,7 +926,18 @@ class _TagPickerSheetState extends State<_TagPickerSheet> {
 class _MetaBar extends StatelessWidget {
   final AppDatabase db;
   final Thought thought;
-  const _MetaBar({required this.db, required this.thought});
+  final List<DocSection> sections;
+  final int linkCount;
+  final VoidCallback onOpenLinks;
+  final VoidCallback? onOpenOutline;
+  const _MetaBar({
+    required this.db,
+    required this.thought,
+    required this.sections,
+    required this.linkCount,
+    required this.onOpenLinks,
+    this.onOpenOutline,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -701,6 +947,67 @@ class _MetaBar extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       child: Column(children: [
+        // 结构行：分了几节 + 连了几条。这两件事决定「这是一篇短文还是
+        // 一颗有位置的东西」，放在标签上面比放在最下面更容易被看到。
+        if (sections.isNotEmpty || linkCount > 0)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 6),
+            child: Row(children: [
+              if (sections.isNotEmpty) ...[
+                InkWell(
+                  onTap: onOpenOutline,
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.format_list_bulleted,
+                          size: 14, color: T.inkSecondary),
+                      const SizedBox(width: 5),
+                      Text('${sections.length} 节',
+                          style: const TextStyle(
+                              fontSize: 11, color: T.inkSecondary)),
+                    ]),
+                  ),
+                ),
+                const SizedBox(width: 14),
+              ],
+              if (linkCount > 0) ...[
+                InkWell(
+                  onTap: onOpenLinks,
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      const Icon(Icons.hub_outlined,
+                          size: 14, color: T.brandPrimary),
+                      const SizedBox(width: 5),
+                      Text('$linkCount 条关联',
+                          style: const TextStyle(
+                              fontSize: 11, color: T.brandPrimary)),
+                    ]),
+                  ),
+                ),
+              ] else ...[
+                InkWell(
+                  onTap: onOpenLinks,
+                  borderRadius: BorderRadius.circular(6),
+                  child: Padding(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 2, vertical: 2),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                      Icon(Icons.add_link, size: 14, color: T.inkTertiary),
+                      SizedBox(width: 5),
+                      Text('加关联',
+                          style: TextStyle(
+                              fontSize: 11, color: T.inkTertiary)),
+                    ]),
+                  ),
+                ),
+              ],
+            ]),
+          ),
         // 标签行：实时反映标签面板写回结果
         StreamBuilder<List<Tag>>(
           stream: db.watchTagsOfThought(thought.id),

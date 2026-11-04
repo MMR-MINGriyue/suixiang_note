@@ -3665,6 +3665,398 @@ class SettingsCompanion extends UpdateCompanion<Setting> {
   }
 }
 
+class $ThoughtLinksTable extends ThoughtLinks
+    with TableInfo<$ThoughtLinksTable, ThoughtLink> {
+  @override
+  final GeneratedDatabase attachedDatabase;
+  final String? _alias;
+  $ThoughtLinksTable(this.attachedDatabase, [this._alias]);
+  static const VerificationMeta _idMeta = const VerificationMeta('id');
+  @override
+  late final GeneratedColumn<int> id = GeneratedColumn<int>(
+    'id',
+    aliasedName,
+    false,
+    hasAutoIncrement: true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+    defaultConstraints: GeneratedColumn.constraintIsAlways(
+      'PRIMARY KEY AUTOINCREMENT',
+    ),
+  );
+  static const VerificationMeta _fromIdMeta = const VerificationMeta('fromId');
+  @override
+  late final GeneratedColumn<int> fromId = GeneratedColumn<int>(
+    'from_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _toIdMeta = const VerificationMeta('toId');
+  @override
+  late final GeneratedColumn<int> toId = GeneratedColumn<int>(
+    'to_id',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _kindMeta = const VerificationMeta('kind');
+  @override
+  late final GeneratedColumn<String> kind = GeneratedColumn<String>(
+    'kind',
+    aliasedName,
+    false,
+    type: DriftSqlType.string,
+    requiredDuringInsert: false,
+    defaultValue: const Constant('related'),
+  );
+  static const VerificationMeta _createdAtMeta = const VerificationMeta(
+    'createdAt',
+  );
+  @override
+  late final GeneratedColumn<int> createdAt = GeneratedColumn<int>(
+    'created_at',
+    aliasedName,
+    false,
+    type: DriftSqlType.int,
+    requiredDuringInsert: true,
+  );
+  static const VerificationMeta _deletedAtMeta = const VerificationMeta(
+    'deletedAt',
+  );
+  @override
+  late final GeneratedColumn<int> deletedAt = GeneratedColumn<int>(
+    'deleted_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
+  @override
+  List<GeneratedColumn> get $columns => [
+    id,
+    fromId,
+    toId,
+    kind,
+    createdAt,
+    deletedAt,
+  ];
+  @override
+  String get aliasedName => _alias ?? actualTableName;
+  @override
+  String get actualTableName => $name;
+  static const String $name = 'thought_links';
+  @override
+  VerificationContext validateIntegrity(
+    Insertable<ThoughtLink> instance, {
+    bool isInserting = false,
+  }) {
+    final context = VerificationContext();
+    final data = instance.toColumns(true);
+    if (data.containsKey('id')) {
+      context.handle(_idMeta, id.isAcceptableOrUnknown(data['id']!, _idMeta));
+    }
+    if (data.containsKey('from_id')) {
+      context.handle(
+        _fromIdMeta,
+        fromId.isAcceptableOrUnknown(data['from_id']!, _fromIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_fromIdMeta);
+    }
+    if (data.containsKey('to_id')) {
+      context.handle(
+        _toIdMeta,
+        toId.isAcceptableOrUnknown(data['to_id']!, _toIdMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_toIdMeta);
+    }
+    if (data.containsKey('kind')) {
+      context.handle(
+        _kindMeta,
+        kind.isAcceptableOrUnknown(data['kind']!, _kindMeta),
+      );
+    }
+    if (data.containsKey('created_at')) {
+      context.handle(
+        _createdAtMeta,
+        createdAt.isAcceptableOrUnknown(data['created_at']!, _createdAtMeta),
+      );
+    } else if (isInserting) {
+      context.missing(_createdAtMeta);
+    }
+    if (data.containsKey('deleted_at')) {
+      context.handle(
+        _deletedAtMeta,
+        deletedAt.isAcceptableOrUnknown(data['deleted_at']!, _deletedAtMeta),
+      );
+    }
+    return context;
+  }
+
+  @override
+  Set<GeneratedColumn> get $primaryKey => {id};
+  @override
+  ThoughtLink map(Map<String, dynamic> data, {String? tablePrefix}) {
+    final effectivePrefix = tablePrefix != null ? '$tablePrefix.' : '';
+    return ThoughtLink(
+      id: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}id'],
+      )!,
+      fromId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}from_id'],
+      )!,
+      toId: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}to_id'],
+      )!,
+      kind: attachedDatabase.typeMapping.read(
+        DriftSqlType.string,
+        data['${effectivePrefix}kind'],
+      )!,
+      createdAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}created_at'],
+      )!,
+      deletedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}deleted_at'],
+      ),
+    );
+  }
+
+  @override
+  $ThoughtLinksTable createAlias(String alias) {
+    return $ThoughtLinksTable(attachedDatabase, alias);
+  }
+}
+
+class ThoughtLink extends DataClass implements Insertable<ThoughtLink> {
+  final int id;
+  final int fromId;
+  final int toId;
+  final String kind;
+  final int createdAt;
+  final int? deletedAt;
+  const ThoughtLink({
+    required this.id,
+    required this.fromId,
+    required this.toId,
+    required this.kind,
+    required this.createdAt,
+    this.deletedAt,
+  });
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    map['id'] = Variable<int>(id);
+    map['from_id'] = Variable<int>(fromId);
+    map['to_id'] = Variable<int>(toId);
+    map['kind'] = Variable<String>(kind);
+    map['created_at'] = Variable<int>(createdAt);
+    if (!nullToAbsent || deletedAt != null) {
+      map['deleted_at'] = Variable<int>(deletedAt);
+    }
+    return map;
+  }
+
+  ThoughtLinksCompanion toCompanion(bool nullToAbsent) {
+    return ThoughtLinksCompanion(
+      id: Value(id),
+      fromId: Value(fromId),
+      toId: Value(toId),
+      kind: Value(kind),
+      createdAt: Value(createdAt),
+      deletedAt: deletedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(deletedAt),
+    );
+  }
+
+  factory ThoughtLink.fromJson(
+    Map<String, dynamic> json, {
+    ValueSerializer? serializer,
+  }) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return ThoughtLink(
+      id: serializer.fromJson<int>(json['id']),
+      fromId: serializer.fromJson<int>(json['fromId']),
+      toId: serializer.fromJson<int>(json['toId']),
+      kind: serializer.fromJson<String>(json['kind']),
+      createdAt: serializer.fromJson<int>(json['createdAt']),
+      deletedAt: serializer.fromJson<int?>(json['deletedAt']),
+    );
+  }
+  @override
+  Map<String, dynamic> toJson({ValueSerializer? serializer}) {
+    serializer ??= driftRuntimeOptions.defaultSerializer;
+    return <String, dynamic>{
+      'id': serializer.toJson<int>(id),
+      'fromId': serializer.toJson<int>(fromId),
+      'toId': serializer.toJson<int>(toId),
+      'kind': serializer.toJson<String>(kind),
+      'createdAt': serializer.toJson<int>(createdAt),
+      'deletedAt': serializer.toJson<int?>(deletedAt),
+    };
+  }
+
+  ThoughtLink copyWith({
+    int? id,
+    int? fromId,
+    int? toId,
+    String? kind,
+    int? createdAt,
+    Value<int?> deletedAt = const Value.absent(),
+  }) => ThoughtLink(
+    id: id ?? this.id,
+    fromId: fromId ?? this.fromId,
+    toId: toId ?? this.toId,
+    kind: kind ?? this.kind,
+    createdAt: createdAt ?? this.createdAt,
+    deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
+  );
+  ThoughtLink copyWithCompanion(ThoughtLinksCompanion data) {
+    return ThoughtLink(
+      id: data.id.present ? data.id.value : this.id,
+      fromId: data.fromId.present ? data.fromId.value : this.fromId,
+      toId: data.toId.present ? data.toId.value : this.toId,
+      kind: data.kind.present ? data.kind.value : this.kind,
+      createdAt: data.createdAt.present ? data.createdAt.value : this.createdAt,
+      deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
+    );
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ThoughtLink(')
+          ..write('id: $id, ')
+          ..write('fromId: $fromId, ')
+          ..write('toId: $toId, ')
+          ..write('kind: $kind, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('deletedAt: $deletedAt')
+          ..write(')'))
+        .toString();
+  }
+
+  @override
+  int get hashCode => Object.hash(id, fromId, toId, kind, createdAt, deletedAt);
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      (other is ThoughtLink &&
+          other.id == this.id &&
+          other.fromId == this.fromId &&
+          other.toId == this.toId &&
+          other.kind == this.kind &&
+          other.createdAt == this.createdAt &&
+          other.deletedAt == this.deletedAt);
+}
+
+class ThoughtLinksCompanion extends UpdateCompanion<ThoughtLink> {
+  final Value<int> id;
+  final Value<int> fromId;
+  final Value<int> toId;
+  final Value<String> kind;
+  final Value<int> createdAt;
+  final Value<int?> deletedAt;
+  const ThoughtLinksCompanion({
+    this.id = const Value.absent(),
+    this.fromId = const Value.absent(),
+    this.toId = const Value.absent(),
+    this.kind = const Value.absent(),
+    this.createdAt = const Value.absent(),
+    this.deletedAt = const Value.absent(),
+  });
+  ThoughtLinksCompanion.insert({
+    this.id = const Value.absent(),
+    required int fromId,
+    required int toId,
+    this.kind = const Value.absent(),
+    required int createdAt,
+    this.deletedAt = const Value.absent(),
+  }) : fromId = Value(fromId),
+       toId = Value(toId),
+       createdAt = Value(createdAt);
+  static Insertable<ThoughtLink> custom({
+    Expression<int>? id,
+    Expression<int>? fromId,
+    Expression<int>? toId,
+    Expression<String>? kind,
+    Expression<int>? createdAt,
+    Expression<int>? deletedAt,
+  }) {
+    return RawValuesInsertable({
+      if (id != null) 'id': id,
+      if (fromId != null) 'from_id': fromId,
+      if (toId != null) 'to_id': toId,
+      if (kind != null) 'kind': kind,
+      if (createdAt != null) 'created_at': createdAt,
+      if (deletedAt != null) 'deleted_at': deletedAt,
+    });
+  }
+
+  ThoughtLinksCompanion copyWith({
+    Value<int>? id,
+    Value<int>? fromId,
+    Value<int>? toId,
+    Value<String>? kind,
+    Value<int>? createdAt,
+    Value<int?>? deletedAt,
+  }) {
+    return ThoughtLinksCompanion(
+      id: id ?? this.id,
+      fromId: fromId ?? this.fromId,
+      toId: toId ?? this.toId,
+      kind: kind ?? this.kind,
+      createdAt: createdAt ?? this.createdAt,
+      deletedAt: deletedAt ?? this.deletedAt,
+    );
+  }
+
+  @override
+  Map<String, Expression> toColumns(bool nullToAbsent) {
+    final map = <String, Expression>{};
+    if (id.present) {
+      map['id'] = Variable<int>(id.value);
+    }
+    if (fromId.present) {
+      map['from_id'] = Variable<int>(fromId.value);
+    }
+    if (toId.present) {
+      map['to_id'] = Variable<int>(toId.value);
+    }
+    if (kind.present) {
+      map['kind'] = Variable<String>(kind.value);
+    }
+    if (createdAt.present) {
+      map['created_at'] = Variable<int>(createdAt.value);
+    }
+    if (deletedAt.present) {
+      map['deleted_at'] = Variable<int>(deletedAt.value);
+    }
+    return map;
+  }
+
+  @override
+  String toString() {
+    return (StringBuffer('ThoughtLinksCompanion(')
+          ..write('id: $id, ')
+          ..write('fromId: $fromId, ')
+          ..write('toId: $toId, ')
+          ..write('kind: $kind, ')
+          ..write('createdAt: $createdAt, ')
+          ..write('deletedAt: $deletedAt')
+          ..write(')'))
+        .toString();
+  }
+}
+
 abstract class _$AppDatabase extends GeneratedDatabase {
   _$AppDatabase(QueryExecutor e) : super(e);
   $AppDatabaseManager get managers => $AppDatabaseManager(this);
@@ -3676,6 +4068,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
   late final $RemindersTable reminders = $RemindersTable(this);
   late final $AttachmentsTable attachments = $AttachmentsTable(this);
   late final $SettingsTable settings = $SettingsTable(this);
+  late final $ThoughtLinksTable thoughtLinks = $ThoughtLinksTable(this);
   @override
   Iterable<TableInfo<Table, Object?>> get allTables =>
       allSchemaEntities.whereType<TableInfo<Table, Object?>>();
@@ -3689,6 +4082,7 @@ abstract class _$AppDatabase extends GeneratedDatabase {
     reminders,
     attachments,
     settings,
+    thoughtLinks,
   ];
 }
 
@@ -5555,6 +5949,219 @@ typedef $$SettingsTableProcessedTableManager =
       Setting,
       PrefetchHooks Function()
     >;
+typedef $$ThoughtLinksTableCreateCompanionBuilder =
+    ThoughtLinksCompanion Function({
+      Value<int> id,
+      required int fromId,
+      required int toId,
+      Value<String> kind,
+      required int createdAt,
+      Value<int?> deletedAt,
+    });
+typedef $$ThoughtLinksTableUpdateCompanionBuilder =
+    ThoughtLinksCompanion Function({
+      Value<int> id,
+      Value<int> fromId,
+      Value<int> toId,
+      Value<String> kind,
+      Value<int> createdAt,
+      Value<int?> deletedAt,
+    });
+
+class $$ThoughtLinksTableFilterComposer
+    extends Composer<_$AppDatabase, $ThoughtLinksTable> {
+  $$ThoughtLinksTableFilterComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnFilters<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get fromId => $composableBuilder(
+    column: $table.fromId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get toId => $composableBuilder(
+    column: $table.toId,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+}
+
+class $$ThoughtLinksTableOrderingComposer
+    extends Composer<_$AppDatabase, $ThoughtLinksTable> {
+  $$ThoughtLinksTableOrderingComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  ColumnOrderings<int> get id => $composableBuilder(
+    column: $table.id,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get fromId => $composableBuilder(
+    column: $table.fromId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get toId => $composableBuilder(
+    column: $table.toId,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<String> get kind => $composableBuilder(
+    column: $table.kind,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get createdAt => $composableBuilder(
+    column: $table.createdAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
+  ColumnOrderings<int> get deletedAt => $composableBuilder(
+    column: $table.deletedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+}
+
+class $$ThoughtLinksTableAnnotationComposer
+    extends Composer<_$AppDatabase, $ThoughtLinksTable> {
+  $$ThoughtLinksTableAnnotationComposer({
+    required super.$db,
+    required super.$table,
+    super.joinBuilder,
+    super.$addJoinBuilderToRootComposer,
+    super.$removeJoinBuilderFromRootComposer,
+  });
+  GeneratedColumn<int> get id =>
+      $composableBuilder(column: $table.id, builder: (column) => column);
+
+  GeneratedColumn<int> get fromId =>
+      $composableBuilder(column: $table.fromId, builder: (column) => column);
+
+  GeneratedColumn<int> get toId =>
+      $composableBuilder(column: $table.toId, builder: (column) => column);
+
+  GeneratedColumn<String> get kind =>
+      $composableBuilder(column: $table.kind, builder: (column) => column);
+
+  GeneratedColumn<int> get createdAt =>
+      $composableBuilder(column: $table.createdAt, builder: (column) => column);
+
+  GeneratedColumn<int> get deletedAt =>
+      $composableBuilder(column: $table.deletedAt, builder: (column) => column);
+}
+
+class $$ThoughtLinksTableTableManager
+    extends
+        RootTableManager<
+          _$AppDatabase,
+          $ThoughtLinksTable,
+          ThoughtLink,
+          $$ThoughtLinksTableFilterComposer,
+          $$ThoughtLinksTableOrderingComposer,
+          $$ThoughtLinksTableAnnotationComposer,
+          $$ThoughtLinksTableCreateCompanionBuilder,
+          $$ThoughtLinksTableUpdateCompanionBuilder,
+          (
+            ThoughtLink,
+            BaseReferences<_$AppDatabase, $ThoughtLinksTable, ThoughtLink>,
+          ),
+          ThoughtLink,
+          PrefetchHooks Function()
+        > {
+  $$ThoughtLinksTableTableManager(_$AppDatabase db, $ThoughtLinksTable table)
+    : super(
+        TableManagerState(
+          db: db,
+          table: table,
+          createFilteringComposer: () =>
+              $$ThoughtLinksTableFilterComposer($db: db, $table: table),
+          createOrderingComposer: () =>
+              $$ThoughtLinksTableOrderingComposer($db: db, $table: table),
+          createComputedFieldComposer: () =>
+              $$ThoughtLinksTableAnnotationComposer($db: db, $table: table),
+          updateCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                Value<int> fromId = const Value.absent(),
+                Value<int> toId = const Value.absent(),
+                Value<String> kind = const Value.absent(),
+                Value<int> createdAt = const Value.absent(),
+                Value<int?> deletedAt = const Value.absent(),
+              }) => ThoughtLinksCompanion(
+                id: id,
+                fromId: fromId,
+                toId: toId,
+                kind: kind,
+                createdAt: createdAt,
+                deletedAt: deletedAt,
+              ),
+          createCompanionCallback:
+              ({
+                Value<int> id = const Value.absent(),
+                required int fromId,
+                required int toId,
+                Value<String> kind = const Value.absent(),
+                required int createdAt,
+                Value<int?> deletedAt = const Value.absent(),
+              }) => ThoughtLinksCompanion.insert(
+                id: id,
+                fromId: fromId,
+                toId: toId,
+                kind: kind,
+                createdAt: createdAt,
+                deletedAt: deletedAt,
+              ),
+          withReferenceMapper: (p0) => p0
+              .map((e) => (e.readTable(table), BaseReferences(db, table, e)))
+              .toList(),
+          prefetchHooksCallback: null,
+        ),
+      );
+}
+
+typedef $$ThoughtLinksTableProcessedTableManager =
+    ProcessedTableManager<
+      _$AppDatabase,
+      $ThoughtLinksTable,
+      ThoughtLink,
+      $$ThoughtLinksTableFilterComposer,
+      $$ThoughtLinksTableOrderingComposer,
+      $$ThoughtLinksTableAnnotationComposer,
+      $$ThoughtLinksTableCreateCompanionBuilder,
+      $$ThoughtLinksTableUpdateCompanionBuilder,
+      (
+        ThoughtLink,
+        BaseReferences<_$AppDatabase, $ThoughtLinksTable, ThoughtLink>,
+      ),
+      ThoughtLink,
+      PrefetchHooks Function()
+    >;
 
 class $AppDatabaseManager {
   final _$AppDatabase _db;
@@ -5574,4 +6181,6 @@ class $AppDatabaseManager {
       $$AttachmentsTableTableManager(_db, _db.attachments);
   $$SettingsTableTableManager get settings =>
       $$SettingsTableTableManager(_db, _db.settings);
+  $$ThoughtLinksTableTableManager get thoughtLinks =>
+      $$ThoughtLinksTableTableManager(_db, _db.thoughtLinks);
 }

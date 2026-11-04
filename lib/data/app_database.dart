@@ -13,7 +13,7 @@ part 'app_database.g.dart';
 /// 随想随记 本地数据库（drift + sqlite3）
 /// schemaVersion 从 1 起；结构变更必须步进并先做 JSON 快照（PRD §6.4）。
 @DriftDatabase(
-  tables: [Folders, Stages, Thoughts, Tags, ThoughtTags, Reminders, Attachments, Settings],
+  tables: [Folders, Stages, Thoughts, Tags, ThoughtTags, Reminders, Attachments, Settings, ThoughtLinks],
 )
 class AppDatabase extends _$AppDatabase {
   AppDatabase() : super(driftDatabase(name: 'suixiang_note'));
@@ -22,7 +22,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -41,6 +41,10 @@ class AppDatabase extends _$AppDatabase {
             await customStatement(
                 'UPDATE thoughts SET stage_changed_at = updated_at WHERE stage_changed_at IS NULL');
           }
+          // v4：关联表（thought_links）。纯新增表，不触碰已有数据。
+          if (from < 4) {
+            await m.createTable(thoughtLinks);
+          }
         },
         beforeOpen: (details) async {
           // 索引（PRD §6.3，部分索引排除软删行）
@@ -54,6 +58,10 @@ class AppDatabase extends _$AppDatabase {
               'CREATE INDEX IF NOT EXISTS idx_tt_tag ON thought_tags(tag_id)');
           await customStatement(
               'CREATE INDEX IF NOT EXISTS idx_reminders_due ON reminders(status, remind_at)');
+          await customStatement(
+              'CREATE INDEX IF NOT EXISTS idx_links_from ON thought_links(from_id) WHERE deleted_at IS NULL');
+          await customStatement(
+              'CREATE INDEX IF NOT EXISTS idx_links_to ON thought_links(to_id) WHERE deleted_at IS NULL');
 
           // 系统三态种子（PRD §6.2 stages 种子；固定 id 1/2/3）
           final now = DateTime.now().millisecondsSinceEpoch;
@@ -772,6 +780,121 @@ class AppDatabase extends _$AppDatabase {
   Future<void> setSetting(String key, String value) async {
     await into(settings).insertOnConflictUpdate(
         SettingsCompanion.insert(key: key, value: Value(value)));
+  }
+
+  // ═══════════════ 关联：随记之间的有向边（v4） ═══════════════
+
+  /// 双向取某条随记的全部关联。
+  ///
+  /// 为什么查询要双向：关联本身有方向（A 依赖 B ≠ B 依赖 A），但**查看时**
+  /// 用户只想知道「这条跟谁有关」，两边都要列出来，并且在 UI 上用
+  /// [LinkedThought.outgoing] 标明箭头指向，避免「我明明建的是依赖，怎么显示成被依赖」。
+  Stream<List<LinkedThought>> watchLinksOf(int thoughtId) {
+    return (select(thoughtLinks)
+          ..where((l) =>
+              l.deletedAt.isNull() &
+              (l.fromId.equals(thoughtId) | l.toId.equals(thoughtId))))
+        .watch()
+        .asyncMap((links) async {
+      final out = <LinkedThought>[];
+      for (final l in links) {
+        final otherId = l.fromId == thoughtId ? l.toId : l.fromId;
+        final other = await getThought(otherId);
+        // 对端已删（回收站/物理删）就不显示，避免点进去是空白
+        if (other == null || other.deletedAt != null) continue;
+        out.add(LinkedThought(
+          link: l,
+          other: other,
+          outgoing: l.fromId == thoughtId,
+        ));
+      }
+      return out;
+    });
+  }
+
+  /// 建立关联。已存在同向同类边时不重复插入（UNIQUE 约束兜底）。
+  /// 返回 false 表示 this 与 other 相同、或对端不存在。
+  Future<bool> linkThoughts(int fromId, int toId, {String kind = 'related'}) async {
+    if (fromId == toId) return false;
+    final target = await getThought(toId);
+    if (target == null || target.deletedAt != null) return false;
+    await into(thoughtLinks).insert(
+      ThoughtLinksCompanion.insert(
+        fromId: fromId,
+        toId: toId,
+        kind: Value(kind),
+        createdAt: DateTime.now().millisecondsSinceEpoch,
+      ),
+      mode: InsertMode.insertOrIgnore,
+    );
+    return true;
+  }
+
+  Future<void> unlinkThought(int linkId) async {
+    await (update(thoughtLinks)..where((l) => l.id.equals(linkId)))
+        .write(ThoughtLinksCompanion(
+      deletedAt: Value(DateTime.now().millisecondsSinceEpoch),
+    ));
+  }
+
+  /// 图谱快照：一次取全部节点与边，供可视化页做布局。
+  ///
+  /// 为什么不给「每个节点一条流」：力导向布局要全局迭代，逐点订阅会
+  /// 让布局在每次局部变化时整体跳一次。图谱本来就是「看整体」的视图，
+  /// 一次性取快照更稳，也更省订阅。
+  Future<GraphSnapshot> loadGraph({int maxNodes = 300}) async {
+    final nodes = await (select(thoughts)
+          ..where((t) => t.deletedAt.isNull() & t.isArchived.equals(false))
+          ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)])
+          ..limit(maxNodes))
+        .get();
+    final ids = nodes.map((n) => n.id).toSet();
+
+    final edges = await (select(thoughtLinks)
+          ..where((l) => l.deletedAt.isNull()))
+        .get();
+
+    final kept = edges
+        .where((e) => ids.contains(e.fromId) && ids.contains(e.toId))
+        .toList(growable: false);
+    return GraphSnapshot(nodes: nodes, edges: kept);
+  }
+}
+
+/// 一条关联 + 对端随记 + 方向
+class LinkedThought {
+  final ThoughtLink link;
+  final Thought other;
+
+  /// true = 这条关联是从当前随记指向对方（我 → 对端）
+  final bool outgoing;
+  LinkedThought({required this.link, required this.other, required this.outgoing});
+
+  String get kindLabel => switch (link.kind) {
+        'depends' => outgoing ? '依赖' : '被依赖',
+        'parent' => outgoing ? '属于' : '包含',
+        _ => '相关',
+      };
+}
+
+/// 图谱数据快照
+class GraphSnapshot {
+  final List<Thought> nodes;
+  final List<ThoughtLink> edges;
+  GraphSnapshot({required this.nodes, required this.edges});
+
+  bool get isEmpty => nodes.isEmpty;
+  int get edgeCount => edges.length;
+
+  /// 孤立节点数：如实告诉用户「图谱里有多少条还没连上」，
+  /// 否则一张全是散点的图会让人以为功能坏了。
+  int get isolatedCount {
+    final touched = <int>{};
+    for (final e in edges) {
+      touched.add(e.fromId);
+      touched.add(e.toId);
+    }
+    return nodes.where((n) => !touched.contains(n.id)).length;
   }
 }
 

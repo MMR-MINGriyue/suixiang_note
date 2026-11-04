@@ -100,3 +100,27 @@ class Settings extends Table {
   @override
   Set<Column> get primaryKey => {key};
 }
+
+/// 随记之间的关联（v4）。
+///
+/// 为什么不用标签代替：标签是「一堆东西的共同属性」，关联是「这两条之间的
+/// 具体关系」，两者的检索方向相反——标签回答「还有哪些也是X」，关联回答
+/// 「这条跟哪条有关、怎么有关」。做成标签就无法表达方向与关系类型。
+///
+/// 为什么不用文件夹层级代替：文件夹是一棵树，一条只能在一个文件夹里；
+/// 而「这件事同时是 A 的后续和 B 的前提」是很常见的，树装不下。
+class ThoughtLinks extends Table {
+  IntColumn get id => integer().autoIncrement()();
+  IntColumn get fromId => integer().references(Thoughts, #id)();
+  IntColumn get toId => integer().references(Thoughts, #id)();
+  // related 相关 / depends 依赖（from 依赖 to）/ parent 从属（from 属于 to）
+  TextColumn get kind => text().withDefault(const Constant('related'))();
+  IntColumn get createdAt => integer()();
+  IntColumn get deletedAt => integer().nullable()();
+
+  @override
+  List<String> get customConstraints => [
+        'UNIQUE (from_id, to_id, kind)',
+        'CHECK (from_id <> to_id)',
+      ];
+}
