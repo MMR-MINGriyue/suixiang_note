@@ -43,6 +43,9 @@ class Thoughts extends Table {
   IntColumn get createdAt => integer()();
   IntColumn get updatedAt => integer()(); // 冲突判定基准
   IntColumn get completedAt => integer().nullable()(); // 进入「已完成」时刻
+  // 进入当前阶段的时刻（v3）。updatedAt 每次编辑都会变，问不出「这件事
+  // 在推进中卡了几天」；这个字段专门回答那个问题。
+  IntColumn get stageChangedAt => integer().nullable()();
   IntColumn get deletedAt => integer().nullable()(); // 软删；非空=回收站
 }
 

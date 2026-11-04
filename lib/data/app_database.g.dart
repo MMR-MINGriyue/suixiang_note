@@ -1103,6 +1103,17 @@ class $ThoughtsTable extends Thoughts with TableInfo<$ThoughtsTable, Thought> {
     type: DriftSqlType.int,
     requiredDuringInsert: false,
   );
+  static const VerificationMeta _stageChangedAtMeta = const VerificationMeta(
+    'stageChangedAt',
+  );
+  @override
+  late final GeneratedColumn<int> stageChangedAt = GeneratedColumn<int>(
+    'stage_changed_at',
+    aliasedName,
+    true,
+    type: DriftSqlType.int,
+    requiredDuringInsert: false,
+  );
   static const VerificationMeta _deletedAtMeta = const VerificationMeta(
     'deletedAt',
   );
@@ -1130,6 +1141,7 @@ class $ThoughtsTable extends Thoughts with TableInfo<$ThoughtsTable, Thought> {
     createdAt,
     updatedAt,
     completedAt,
+    stageChangedAt,
     deletedAt,
   ];
   @override
@@ -1236,6 +1248,15 @@ class $ThoughtsTable extends Thoughts with TableInfo<$ThoughtsTable, Thought> {
         ),
       );
     }
+    if (data.containsKey('stage_changed_at')) {
+      context.handle(
+        _stageChangedAtMeta,
+        stageChangedAt.isAcceptableOrUnknown(
+          data['stage_changed_at']!,
+          _stageChangedAtMeta,
+        ),
+      );
+    }
     if (data.containsKey('deleted_at')) {
       context.handle(
         _deletedAtMeta,
@@ -1307,6 +1328,10 @@ class $ThoughtsTable extends Thoughts with TableInfo<$ThoughtsTable, Thought> {
         DriftSqlType.int,
         data['${effectivePrefix}completed_at'],
       ),
+      stageChangedAt: attachedDatabase.typeMapping.read(
+        DriftSqlType.int,
+        data['${effectivePrefix}stage_changed_at'],
+      ),
       deletedAt: attachedDatabase.typeMapping.read(
         DriftSqlType.int,
         data['${effectivePrefix}deleted_at'],
@@ -1335,6 +1360,7 @@ class Thought extends DataClass implements Insertable<Thought> {
   final int createdAt;
   final int updatedAt;
   final int? completedAt;
+  final int? stageChangedAt;
   final int? deletedAt;
   const Thought({
     required this.id,
@@ -1351,6 +1377,7 @@ class Thought extends DataClass implements Insertable<Thought> {
     required this.createdAt,
     required this.updatedAt,
     this.completedAt,
+    this.stageChangedAt,
     this.deletedAt,
   });
   @override
@@ -1375,6 +1402,9 @@ class Thought extends DataClass implements Insertable<Thought> {
     map['updated_at'] = Variable<int>(updatedAt);
     if (!nullToAbsent || completedAt != null) {
       map['completed_at'] = Variable<int>(completedAt);
+    }
+    if (!nullToAbsent || stageChangedAt != null) {
+      map['stage_changed_at'] = Variable<int>(stageChangedAt);
     }
     if (!nullToAbsent || deletedAt != null) {
       map['deleted_at'] = Variable<int>(deletedAt);
@@ -1404,6 +1434,9 @@ class Thought extends DataClass implements Insertable<Thought> {
       completedAt: completedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(completedAt),
+      stageChangedAt: stageChangedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(stageChangedAt),
       deletedAt: deletedAt == null && nullToAbsent
           ? const Value.absent()
           : Value(deletedAt),
@@ -1430,6 +1463,7 @@ class Thought extends DataClass implements Insertable<Thought> {
       createdAt: serializer.fromJson<int>(json['createdAt']),
       updatedAt: serializer.fromJson<int>(json['updatedAt']),
       completedAt: serializer.fromJson<int?>(json['completedAt']),
+      stageChangedAt: serializer.fromJson<int?>(json['stageChangedAt']),
       deletedAt: serializer.fromJson<int?>(json['deletedAt']),
     );
   }
@@ -1451,6 +1485,7 @@ class Thought extends DataClass implements Insertable<Thought> {
       'createdAt': serializer.toJson<int>(createdAt),
       'updatedAt': serializer.toJson<int>(updatedAt),
       'completedAt': serializer.toJson<int?>(completedAt),
+      'stageChangedAt': serializer.toJson<int?>(stageChangedAt),
       'deletedAt': serializer.toJson<int?>(deletedAt),
     };
   }
@@ -1470,6 +1505,7 @@ class Thought extends DataClass implements Insertable<Thought> {
     int? createdAt,
     int? updatedAt,
     Value<int?> completedAt = const Value.absent(),
+    Value<int?> stageChangedAt = const Value.absent(),
     Value<int?> deletedAt = const Value.absent(),
   }) => Thought(
     id: id ?? this.id,
@@ -1486,6 +1522,9 @@ class Thought extends DataClass implements Insertable<Thought> {
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? this.updatedAt,
     completedAt: completedAt.present ? completedAt.value : this.completedAt,
+    stageChangedAt: stageChangedAt.present
+        ? stageChangedAt.value
+        : this.stageChangedAt,
     deletedAt: deletedAt.present ? deletedAt.value : this.deletedAt,
   );
   Thought copyWithCompanion(ThoughtsCompanion data) {
@@ -1508,6 +1547,9 @@ class Thought extends DataClass implements Insertable<Thought> {
       completedAt: data.completedAt.present
           ? data.completedAt.value
           : this.completedAt,
+      stageChangedAt: data.stageChangedAt.present
+          ? data.stageChangedAt.value
+          : this.stageChangedAt,
       deletedAt: data.deletedAt.present ? data.deletedAt.value : this.deletedAt,
     );
   }
@@ -1529,6 +1571,7 @@ class Thought extends DataClass implements Insertable<Thought> {
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('completedAt: $completedAt, ')
+          ..write('stageChangedAt: $stageChangedAt, ')
           ..write('deletedAt: $deletedAt')
           ..write(')'))
         .toString();
@@ -1550,6 +1593,7 @@ class Thought extends DataClass implements Insertable<Thought> {
     createdAt,
     updatedAt,
     completedAt,
+    stageChangedAt,
     deletedAt,
   );
   @override
@@ -1570,6 +1614,7 @@ class Thought extends DataClass implements Insertable<Thought> {
           other.createdAt == this.createdAt &&
           other.updatedAt == this.updatedAt &&
           other.completedAt == this.completedAt &&
+          other.stageChangedAt == this.stageChangedAt &&
           other.deletedAt == this.deletedAt);
 }
 
@@ -1588,6 +1633,7 @@ class ThoughtsCompanion extends UpdateCompanion<Thought> {
   final Value<int> createdAt;
   final Value<int> updatedAt;
   final Value<int?> completedAt;
+  final Value<int?> stageChangedAt;
   final Value<int?> deletedAt;
   const ThoughtsCompanion({
     this.id = const Value.absent(),
@@ -1604,6 +1650,7 @@ class ThoughtsCompanion extends UpdateCompanion<Thought> {
     this.createdAt = const Value.absent(),
     this.updatedAt = const Value.absent(),
     this.completedAt = const Value.absent(),
+    this.stageChangedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
   });
   ThoughtsCompanion.insert({
@@ -1621,6 +1668,7 @@ class ThoughtsCompanion extends UpdateCompanion<Thought> {
     required int createdAt,
     required int updatedAt,
     this.completedAt = const Value.absent(),
+    this.stageChangedAt = const Value.absent(),
     this.deletedAt = const Value.absent(),
   }) : uuid = Value(uuid),
        stageId = Value(stageId),
@@ -1641,6 +1689,7 @@ class ThoughtsCompanion extends UpdateCompanion<Thought> {
     Expression<int>? createdAt,
     Expression<int>? updatedAt,
     Expression<int>? completedAt,
+    Expression<int>? stageChangedAt,
     Expression<int>? deletedAt,
   }) {
     return RawValuesInsertable({
@@ -1658,6 +1707,7 @@ class ThoughtsCompanion extends UpdateCompanion<Thought> {
       if (createdAt != null) 'created_at': createdAt,
       if (updatedAt != null) 'updated_at': updatedAt,
       if (completedAt != null) 'completed_at': completedAt,
+      if (stageChangedAt != null) 'stage_changed_at': stageChangedAt,
       if (deletedAt != null) 'deleted_at': deletedAt,
     });
   }
@@ -1677,6 +1727,7 @@ class ThoughtsCompanion extends UpdateCompanion<Thought> {
     Value<int>? createdAt,
     Value<int>? updatedAt,
     Value<int?>? completedAt,
+    Value<int?>? stageChangedAt,
     Value<int?>? deletedAt,
   }) {
     return ThoughtsCompanion(
@@ -1694,6 +1745,7 @@ class ThoughtsCompanion extends UpdateCompanion<Thought> {
       createdAt: createdAt ?? this.createdAt,
       updatedAt: updatedAt ?? this.updatedAt,
       completedAt: completedAt ?? this.completedAt,
+      stageChangedAt: stageChangedAt ?? this.stageChangedAt,
       deletedAt: deletedAt ?? this.deletedAt,
     );
   }
@@ -1743,6 +1795,9 @@ class ThoughtsCompanion extends UpdateCompanion<Thought> {
     if (completedAt.present) {
       map['completed_at'] = Variable<int>(completedAt.value);
     }
+    if (stageChangedAt.present) {
+      map['stage_changed_at'] = Variable<int>(stageChangedAt.value);
+    }
     if (deletedAt.present) {
       map['deleted_at'] = Variable<int>(deletedAt.value);
     }
@@ -1766,6 +1821,7 @@ class ThoughtsCompanion extends UpdateCompanion<Thought> {
           ..write('createdAt: $createdAt, ')
           ..write('updatedAt: $updatedAt, ')
           ..write('completedAt: $completedAt, ')
+          ..write('stageChangedAt: $stageChangedAt, ')
           ..write('deletedAt: $deletedAt')
           ..write(')'))
         .toString();
@@ -4123,6 +4179,7 @@ typedef $$ThoughtsTableCreateCompanionBuilder =
       required int createdAt,
       required int updatedAt,
       Value<int?> completedAt,
+      Value<int?> stageChangedAt,
       Value<int?> deletedAt,
     });
 typedef $$ThoughtsTableUpdateCompanionBuilder =
@@ -4141,6 +4198,7 @@ typedef $$ThoughtsTableUpdateCompanionBuilder =
       Value<int> createdAt,
       Value<int> updatedAt,
       Value<int?> completedAt,
+      Value<int?> stageChangedAt,
       Value<int?> deletedAt,
     });
 
@@ -4220,6 +4278,11 @@ class $$ThoughtsTableFilterComposer
 
   ColumnFilters<int> get completedAt => $composableBuilder(
     column: $table.completedAt,
+    builder: (column) => ColumnFilters(column),
+  );
+
+  ColumnFilters<int> get stageChangedAt => $composableBuilder(
+    column: $table.stageChangedAt,
     builder: (column) => ColumnFilters(column),
   );
 
@@ -4308,6 +4371,11 @@ class $$ThoughtsTableOrderingComposer
     builder: (column) => ColumnOrderings(column),
   );
 
+  ColumnOrderings<int> get stageChangedAt => $composableBuilder(
+    column: $table.stageChangedAt,
+    builder: (column) => ColumnOrderings(column),
+  );
+
   ColumnOrderings<int> get deletedAt => $composableBuilder(
     column: $table.deletedAt,
     builder: (column) => ColumnOrderings(column),
@@ -4369,6 +4437,11 @@ class $$ThoughtsTableAnnotationComposer
     builder: (column) => column,
   );
 
+  GeneratedColumn<int> get stageChangedAt => $composableBuilder(
+    column: $table.stageChangedAt,
+    builder: (column) => column,
+  );
+
   GeneratedColumn<int> get deletedAt =>
       $composableBuilder(column: $table.deletedAt, builder: (column) => column);
 }
@@ -4415,6 +4488,7 @@ class $$ThoughtsTableTableManager
                 Value<int> createdAt = const Value.absent(),
                 Value<int> updatedAt = const Value.absent(),
                 Value<int?> completedAt = const Value.absent(),
+                Value<int?> stageChangedAt = const Value.absent(),
                 Value<int?> deletedAt = const Value.absent(),
               }) => ThoughtsCompanion(
                 id: id,
@@ -4431,6 +4505,7 @@ class $$ThoughtsTableTableManager
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 completedAt: completedAt,
+                stageChangedAt: stageChangedAt,
                 deletedAt: deletedAt,
               ),
           createCompanionCallback:
@@ -4449,6 +4524,7 @@ class $$ThoughtsTableTableManager
                 required int createdAt,
                 required int updatedAt,
                 Value<int?> completedAt = const Value.absent(),
+                Value<int?> stageChangedAt = const Value.absent(),
                 Value<int?> deletedAt = const Value.absent(),
               }) => ThoughtsCompanion.insert(
                 id: id,
@@ -4465,6 +4541,7 @@ class $$ThoughtsTableTableManager
                 createdAt: createdAt,
                 updatedAt: updatedAt,
                 completedAt: completedAt,
+                stageChangedAt: stageChangedAt,
                 deletedAt: deletedAt,
               ),
           withReferenceMapper: (p0) => p0

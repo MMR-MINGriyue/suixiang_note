@@ -22,7 +22,7 @@ class AppDatabase extends _$AppDatabase {
   AppDatabase.forTesting(super.executor);
 
   @override
-  int get schemaVersion => 2;
+  int get schemaVersion => 3;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -32,6 +32,14 @@ class AppDatabase extends _$AppDatabase {
           // 但存量库需要 ALTER TABLE 补列（美化 P1 ④-2 抽屉网格换色）。
           if (from < 2) {
             await m.addColumn(folders, folders.color);
+          }
+          // v3：thoughts 加 stageChangedAt（进入当前阶段时刻）。
+          // 补列后回填：老数据没有这个信息，只能用 updatedAt 近似——
+          // 宁可给一个偏差值，也不要让「卡了几天」对全部存量显示空白。
+          if (from < 3) {
+            await m.addColumn(thoughts, thoughts.stageChangedAt);
+            await customStatement(
+                'UPDATE thoughts SET stage_changed_at = updated_at WHERE stage_changed_at IS NULL');
           }
         },
         beforeOpen: (details) async {
@@ -301,6 +309,7 @@ class AppDatabase extends _$AppDatabase {
         stageId: Value(target.id),
         updatedAt: Value(now),
         completedAt: Value(target.kind == 'done' ? now : null),
+        stageChangedAt: Value(now),
       ),
     );
     return thoughtIds.length;
@@ -315,6 +324,8 @@ class AppDatabase extends _$AppDatabase {
 
   /// 落态写盘统一入口：completedAt 只在三态里那个 kind=='done' 的态上存在，
   /// 离开它即清空——否则「3 天前完成」会跟着一条又变回灵感的随记跑。
+  /// stageChangedAt 每次都刷新：它记录「进入当前这一步」的时刻，
+  /// 正是「在推进中卡了 N 天」这句话的唯一数据来源。
   Future<void> _writeStage(int thoughtId, Stage target) async {
     final now = DateTime.now().millisecondsSinceEpoch;
     await (update(thoughts)..where((t) => t.id.equals(thoughtId))).write(
@@ -322,6 +333,7 @@ class AppDatabase extends _$AppDatabase {
         stageId: Value(target.id),
         updatedAt: Value(now),
         completedAt: Value(target.kind == 'done' ? now : null),
+        stageChangedAt: Value(now),
       ),
     );
   }
@@ -357,6 +369,7 @@ class AppDatabase extends _$AppDatabase {
         wordCount: Value(trimmed.replaceAll(RegExp(r'\s'), '').length),
         createdAt: now,
         updatedAt: now,
+        stageChangedAt: Value(now), // 新建即「进入灵感」的时刻
       );
       return into(thoughts).insert(companion);
     }

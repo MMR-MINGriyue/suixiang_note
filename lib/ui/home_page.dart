@@ -665,6 +665,10 @@ class _NoteCard extends StatelessWidget {
                                       : T.inkPrimary.withValues(alpha: 0.75))
                                   : T.inkSecondary)),
                     ],
+                    // 「停在这里 N 天」：只对推进中且卡满 3 天的卡出现。
+                    // 这是推进这条主线上唯一带压力的信息——灵感躺着正常、
+                    // 完成躺着应该，只有推进中停住才值得被看见。
+                    _StuckBadge(thought: thought, stagesStream: stagesStream),
                     const SizedBox(height: 8),
                     // 层级三：标签 chips + 左下水滴徽章
                     Row(
@@ -839,6 +843,38 @@ class _NoteCard extends StatelessWidget {
               );
             },
           ),
+          // 一步退回：单向循环要绕两圈才能退一格，这里给一个直达反向的入口。
+          // 放在菜单里而不是角标上——它比「推进」低频，不该占主触控区。
+          StreamBuilder<List<Stage>>(
+            stream: stagesStream,
+            builder: (context, sSnap) {
+              final stages = sSnap.data ?? const <Stage>[];
+              final stage = stageOf(stages, thought);
+              final prev = prevStageOf(stages, stage.id);
+              if (prev == null || prev.id == stage.id) {
+                return const SizedBox.shrink();
+              }
+              return ListTile(
+                leading: const Icon(Icons.undo, size: 22, color: T.inkSecondary),
+                title: Text('退回「${prev.name}」'),
+                subtitle: const Text('打错了或者还没到时候',
+                    style: TextStyle(fontSize: 12, color: T.inkTertiary)),
+                onTap: () async {
+                  Navigator.pop(context);
+                  await db.previousStage(thought.id);
+                  if (!context.mounted) return;
+                  HapticFeedback.selectionClick();
+                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                    content: Text('已退回「${prev.name}」'),
+                    duration: const Duration(seconds: 3),
+                    action: SnackBarAction(
+                        label: '撤回',
+                        onPressed: () => db.setStage(thought.id, stage.id)),
+                  ));
+                },
+              );
+            },
+          ),
           ListTile(
             leading: Icon(thought.isPinned ? Icons.push_pin_outlined : Icons.push_pin),
             title: Text(thought.isPinned ? '取消置顶' : '置顶'),
@@ -877,7 +913,39 @@ class _NoteCard extends StatelessWidget {
   }
 }
 
-/// 批量操作栏：多选模式底部常驻（打标/移动/置顶/删除）
+/// 「停在这里 N 天」小标：只在推进中且卡满 3 天时出现。
+///
+/// 为什么不放在时间位而是单独一行：时间位显示的是「最近改动」，
+/// 一条在推进中停了 5 天但昨天补了个字的随记，时间位看上去很新，
+/// 实际上这件事一直没往下走。这两个信息必须分开看。
+class _StuckBadge extends StatelessWidget {
+  final Thought thought;
+  final Stream<List<Stage>> stagesStream;
+  const _StuckBadge({required this.thought, required this.stagesStream});
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder<List<Stage>>(
+      stream: stagesStream,
+      builder: (context, snap) {
+        final stage = stageOf(snap.data ?? const <Stage>[], thought);
+        final label = stagnationLabel(thought.stageChangedAt, stage.kind);
+        if (label.isEmpty) return const SizedBox.shrink();
+        return Padding(
+          padding: const EdgeInsets.only(top: 6),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.hourglass_bottom, size: 12, color: T.warning),
+            const SizedBox(width: 4),
+            Text(label,
+                style: const TextStyle(fontSize: 11, color: T.warning)),
+          ]),
+        );
+      },
+    );
+  }
+}
+
+/// 批量操作栏：多选模式底部常驻（打标/移动/状态/置顶/归档/删除）
 class _BatchActionBar extends StatelessWidget {
   final AppDatabase db;
   final Set<int> selected;

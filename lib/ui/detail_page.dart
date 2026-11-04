@@ -537,6 +537,27 @@ class _MetaBar extends StatelessWidget {
                       const TextStyle(fontSize: 10, color: T.inkTertiary)),
             ]),
           ),
+        // 「停在这里 N 天」：与首页卡片同一判断（stagnationLabel），
+        // 只在推进中且卡满 3 天出现。详情页是用户决定「还要不要做下去」
+        // 的地方，这个数字在这里比在列表里更有说服力。
+        StreamBuilder<List<Stage>>(
+          stream: db.watchStages(),
+          builder: (context, sSnap) {
+            final stage = stageOf(sSnap.data ?? const <Stage>[], thought);
+            final label = stagnationLabel(thought.stageChangedAt, stage.kind);
+            if (label.isEmpty) return const SizedBox.shrink();
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(children: [
+                const Icon(Icons.hourglass_bottom, size: 14, color: T.warning),
+                const SizedBox(width: 6),
+                Text(label,
+                    style:
+                        const TextStyle(fontSize: 11, color: T.warning)),
+              ]),
+            );
+          },
+        ),
         // 文件夹 + 时间戳行
         Row(children: [          StreamBuilder<List<FolderWithCount>>(
             stream: db.watchFoldersWithCount(),

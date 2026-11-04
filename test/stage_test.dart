@@ -99,6 +99,28 @@ void main() {
       expect(completedLabel(ts(DateTime(2026, 10, 28)), now: now), '7 天前完成');
       expect(completedLabel(ts(DateTime(2026, 3, 4)), now: now), '2026/03/04 完成');
     });
+
+    test('stagnationLabel 只对推进中且满 3 天生效', () {
+      final now = DateTime(2026, 11, 4, 12);
+      int ts(DateTime d) => d.millisecondsSinceEpoch;
+      final five = ts(DateTime(2026, 10, 30));
+      final one = ts(DateTime(2026, 11, 3));
+      // 灵感躺着是正常的、完成躺着是应该的 —— 都不报
+      expect(stagnationLabel(five, 'inspiration', now: now), '');
+      expect(stagnationLabel(five, 'done', now: now), '');
+      // 3 天以内不报，满 3 天才报
+      expect(stagnationLabel(one, 'in_progress', now: now), '');
+      expect(stagnationLabel(five, 'in_progress', now: now), '停在这里 5 天');
+      // 没有记录时间就不瞎猜
+      expect(stagnationLabel(null, 'in_progress', now: now), '');
+    });
+
+    test('stagnationLabel 边界：刚好第 3 天要报', () {
+      final now = DateTime(2026, 11, 4, 0, 1);
+      final threeDaysAgo = DateTime(2026, 11, 1, 23, 59).millisecondsSinceEpoch;
+      expect(stagnationLabel(threeDaysAgo, 'in_progress', now: now),
+          '停在这里 3 天');
+    });
   });
 
   group('推进与落态', () {
@@ -182,6 +204,43 @@ void main() {
       expect(await db.batchSetStage(const [], 3), 0);
       expect(await db.batchSetStage([id], 999), 0);
       expect((await get(id)).stageId, 1);
+    });
+
+    test('stageChangedAt 每次落态都刷新，用于算「停了几天」', () async {
+      await freshDb();
+      // 用 saveDraft 走真实新建路径（seed 是直插，不写 stageChangedAt）
+      final id = await db.saveDraft(content: '卡住的事');
+      final t0 = (await get(id)).stageChangedAt;
+      expect(t0, isNotNull, reason: '新建即有进入灵感的时刻');
+
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await db.setStage(id, 2);
+      final t1 = (await get(id)).stageChangedAt!;
+      expect(t1, greaterThan(t0!), reason: '换态必须刷新');
+
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await db.setStage(id, 2); // 同态
+      expect((await get(id)).stageChangedAt, t1,
+          reason: '点当前态不该重置「停了几天」的计时');
+    });
+
+    test('编辑正文不刷新 stageChangedAt（否则停住的计时会被写字洗掉）',
+        () async {
+      await freshDb();
+      final id = await seed('写了一半的方案');
+      await db.setStage(id, 2);
+      final before = (await get(id)).stageChangedAt;
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await db.saveDraft(id: id, content: '写了一半的方案，又补了两行');
+      expect((await get(id)).stageChangedAt, before);
+    });
+
+    test('批量落态也刷新 stageChangedAt', () async {
+      await freshDb();
+      final a = await seed('A');
+      await db.batchSetStage([a], 2);
+      expect((await get(a)).stageChangedAt, isNotNull);
+      expect((await get(a)).stageId, 2);
     });
   });
 }

@@ -68,3 +68,22 @@ String shortAgeLabel(int? ts, {DateTime? now}) {
   final dd = at.day.toString().padLeft(2, '0');
   return '${at.year}/$mm/$dd';
 }
+
+/// 停在当前这一步多久了（「卡了几天」）。
+///
+/// 只对「推进中」有意义：灵感躺着是正常的，已完成躺着是应该的，
+/// 只有「推进中」停住了才是需要被看见的信号。所以 [kind] 不是
+/// in_progress 时返回空串，界面就不会多出一行噪音。
+///
+/// 阈值取 3 天：一天内换态是正常节奏，两天可能只是周末，
+/// 三天还没动，说明这件事实际上已经停了。
+String stagnationLabel(int? stageChangedAt, String kind, {DateTime? now}) {
+  if (kind != 'in_progress' || stageChangedAt == null) return '';
+  final ref = now ?? DateTime.now();
+  final at = DateTime.fromMillisecondsSinceEpoch(stageChangedAt);
+  final days = DateTime(ref.year, ref.month, ref.day)
+      .difference(DateTime(at.year, at.month, at.day))
+      .inDays;
+  if (days < 3) return '';
+  return '停在这里 $days 天';
+}
