@@ -314,16 +314,40 @@ bool _listEquals(List<int> a, List<int> b) {
 }
 
 /// 每日回顾入口（v1.7）：今天没回顾过时在图标右上角点一个小圆点。
-/// 用 FutureBuilder 读一次 reviewedToday 就够——它只在页面重建时变，
-/// 不需要为「是否已回顾」挂一条流（那是每个 AppBar 重建都查一次库）。
-class _ReviewEntry extends StatelessWidget {
+/// 做成 StatefulWidget 是为了把 Future 存在 state 里——如果放在 build 里现取，
+/// 每次首页重建（滚动、多选、搜索）都会打一次库，而答案一天只变一次。
+/// 从回顾页返回后刷新一次，点完圆点立刻消失。
+class _ReviewEntry extends StatefulWidget {
   final AppDatabase db;
   const _ReviewEntry({required this.db});
 
   @override
+  State<_ReviewEntry> createState() => _ReviewEntryState();
+}
+
+class _ReviewEntryState extends State<_ReviewEntry> {
+  late Future<bool> _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = widget.db.reviewedToday();
+  }
+
+  Future<void> _open() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DailyReviewPage(db: widget.db)),
+    );
+    if (!mounted) return;
+    // 回来后重查：用户可能刚刚点了「今天就到这」
+    setState(() => _future = widget.db.reviewedToday());
+  }
+
+  @override
   Widget build(BuildContext context) {
     return FutureBuilder<bool>(
-      future: db.reviewedToday(),
+      future: _future,
       builder: (context, snap) {
         final pending = snap.data == false;
         return Stack(
@@ -332,10 +356,7 @@ class _ReviewEntry extends StatelessWidget {
             IconButton(
               icon: const Icon(Icons.auto_awesome_outlined),
               tooltip: '每日回顾',
-              onPressed: () => Navigator.push(
-                context,
-                MaterialPageRoute(builder: (_) => DailyReviewPage(db: db)),
-              ),
+              onPressed: _open,
             ),
             if (pending)
               Positioned(

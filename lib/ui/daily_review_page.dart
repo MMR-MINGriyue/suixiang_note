@@ -31,7 +31,7 @@ class _DailyReviewPageState extends State<DailyReviewPage> {
   late Future<List<Thought>> _future;
   Future<({int total, int done, int oldestDays})>? _statsFuture;
   late final Stream<List<Stage>> _stageStream;
-  bool _finished = false;
+  bool _reviewedBefore = false;
 
   @override
   void initState() {
@@ -39,6 +39,11 @@ class _DailyReviewPageState extends State<DailyReviewPage> {
     _stageStream = widget.db.watchStages();
     _load();
     _statsFuture = widget.db.reviewStats();
+    // 进页先问一次「今天是否已回顾」：进来才想起「哦我已经看过了」比
+    // 一进来就被强制弹「你今天已完成」要礼貌得多
+    widget.db.reviewedToday().then((v) {
+      if (mounted) setState(() => _reviewedBefore = v);
+    });
   }
 
   void _load() {
@@ -55,7 +60,6 @@ class _DailyReviewPageState extends State<DailyReviewPage> {
   Future<void> _finish() async {
     await widget.db.markReviewedNow();
     if (!mounted) return;
-    setState(() => _finished = true);
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(content: Text('今天回顾完了。明天再来翻一翻。')),
     );
@@ -86,7 +90,7 @@ class _DailyReviewPageState extends State<DailyReviewPage> {
                 _Header(
                   statsFuture: _statsFuture,
                   dark: dark,
-                  reviewed: _finished,
+                  reviewed: _reviewedBefore,
                 ),
                 Expanded(
                   child: items.isEmpty

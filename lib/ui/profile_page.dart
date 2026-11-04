@@ -10,6 +10,7 @@ import '../data/backup_service.dart';
 import '../data/app_database.dart';
 import '../main.dart' show appDb, themeModeNotifier;
 import '../theme/tokens.dart';
+import 'daily_review_page.dart';
 import 'tag_manage_page.dart';
 import 'widgets/drop_badge.dart';
 
@@ -244,6 +245,31 @@ class _ProfilePageState extends State<ProfilePage> {
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => Navigator.push(context,
                     MaterialPageRoute(builder: (_) => TagManagePage(db: appDb))),
+              ),
+              // 每日回顾（v1.7）：首页 AppBar 有入口，这里再放一个——
+              // 它是「每天该做一次的仪式」，藏在单个图标里容易被长期忽略
+              FutureBuilder<bool>(
+                future: appDb.reviewedToday(),
+                builder: (context, snap) {
+                  final done = snap.data == true;
+                  return ListTile(
+                    leading: const Icon(Icons.auto_awesome_outlined,
+                        color: T.brandPrimary),
+                    title: const Text('每日回顾'),
+                    subtitle: Text(done
+                        ? '今天已回顾 · 明天再来翻一翻'
+                        : '翻出几条很久没碰的想法，重新看一遍'),
+                    trailing: done
+                        ? const Icon(Icons.check_circle,
+                            size: 20, color: T.stageDone)
+                        : const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (_) => DailyReviewPage(db: appDb)),
+                    ),
+                  );
+                },
               ),
               // 竞品分析 P0：捕捉入口不能只有 FAB——冷启动+解锁找图标 >5 秒，
               // 「≤3 秒落库」不成立。桌面小部件已默认可用，这里补通知栏常驻。
