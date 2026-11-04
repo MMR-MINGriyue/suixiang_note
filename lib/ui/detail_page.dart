@@ -4,16 +4,25 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 
+import '../core/edit_history.dart';
 import '../core/format.dart';
+import '../core/markdown_edit.dart';
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
 import 'reminder_sheet.dart';
 import 'widgets/color_palette.dart';
 import 'widgets/drop_badge.dart';
+import 'widgets/edit_toolbar.dart';
 import 'widgets/empty_state.dart';
+import 'widgets/find_replace_sheet.dart';
+import 'widgets/markdown_preview.dart';
 
 /// 详情/编辑页：复用速记的自动落库逻辑（500ms 防抖），增加文件夹归属切换
 /// 打开方式：Navigator.push 全屏页（区别于速记的模态弹层）
+///
+/// v2.0 编辑能力扩展：撤销重做（含桌面快捷键）、Markdown 格式工具条、
+/// 预览切换、查找替换、专注模式。所有文本变换走 core/markdown_edit.dart
+/// 的纯函数，UI 层只负责把结果套回 Controller 并记录历史帧。
 class DetailPage extends StatefulWidget {
   final AppDatabase db;
   final Thought thought;
@@ -25,15 +34,37 @@ class DetailPage extends StatefulWidget {
 
 class _DetailPageState extends State<DetailPage> {
   late final TextEditingController _controller;
+  final _focusNode = FocusNode();
   Timer? _debounce;
   int _wordCount = 0;
+
+  /// 编辑历史：初始帧就是打开页面时的原文
+  late final EditHistory _history;
+  bool _canUndo = false;
+  bool _canRedo = false;
+
+  /// 预览态（只读渲染）；退出预览回到编辑态，文本不丢
+  bool _previewing = false;
+  /// 专注模式：隐藏 AppBar 与元数据，只剩正文
+  bool _focusMode = false;
+
+  /// 是否已设定提醒——PopupMenuButton 的 itemBuilder 只能返回
+  /// PopupMenuEntry，塞不进 StreamBuilder，所以在这里订阅成字段。
+  bool _hasReminder = false;
+  StreamSubscription<List<Reminder>>? _reminderSub;
 
   @override
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.thought.content);
-    _wordCount =
-        widget.thought.content.replaceAll(RegExp(r'\s'), '').length;
+    _wordCount = widget.thought.content.replaceAll(RegExp(r'\s'), '').length;
+    _history = EditHistory(widget.thought.content);
+    _reminderSub = widget.db
+        .watchActiveReminderOf(widget.thought.id)
+        .listen((list) {
+      final has = list.isNotEmpty;
+      if (has != _hasReminder && mounted) setState(() => _hasReminder = has);
+    });
   }
 
   /// 防抖补写：退出页面时若还有未落库的最后输入，立即 flush
@@ -48,132 +79,346 @@ class _DetailPageState extends State<DetailPage> {
   void dispose() {
     _debounce?.cancel();
     _flushPendingSave();
+    _reminderSub?.cancel();
+    _focusNode.dispose();
     _controller.dispose();
     super.dispose();
   }
 
   void _onChanged(String text) {
-    setState(() => _wordCount = text.replaceAll(RegExp(r'\s'), '').length);
+    setState(() {
+      _wordCount = text.replaceAll(RegExp(r'\s'), '').length;
+      _history.record(text, _controller.selection);
+      _canUndo = _history.canUndo;
+      _canRedo = _history.canRedo;
+    });
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
       widget.db.saveDraft(id: widget.thought.id, content: text);
     });
   }
 
+  /// 把一次纯函数变换的结果套回界面：文本 + 光标 + 历史帧 + 落库
+  void _applyEdit(EditResult r, {bool coalesce = false}) {
+    _debounce?.cancel();
+    _controller.value = TextEditingValue(text: r.text, selection: r.selection);
+    setState(() {
+      _wordCount = r.text.replaceAll(RegExp(r'\s'), '').length;
+      _history.record(r.text, r.selection, coalesce: coalesce);
+      _canUndo = _history.canUndo;
+      _canRedo = _history.canRedo;
+    });
+    // 格式操作是一次完整动作，立刻落库，不等防抖
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      widget.db.saveDraft(id: widget.thought.id, content: r.text);
+    });
+    if (!_focusMode) _focusNode.requestFocus();
+  }
+
+  void _undo() {
+    final s = _history.undo();
+    if (s == null) return;
+    _debounce?.cancel();
+    _controller.value = TextEditingValue(text: s.text, selection: s.selection);
+    setState(() {
+      _wordCount = s.text.replaceAll(RegExp(r'\s'), '').length;
+      _canUndo = _history.canUndo;
+      _canRedo = _history.canRedo;
+    });
+    widget.db.saveDraft(id: widget.thought.id, content: s.text);
+    HapticFeedback.selectionClick();
+  }
+
+  void _redo() {
+    final s = _history.redo();
+    if (s == null) return;
+    _debounce?.cancel();
+    _controller.value = TextEditingValue(text: s.text, selection: s.selection);
+    setState(() {
+      _wordCount = s.text.replaceAll(RegExp(r'\s'), '').length;
+      _canUndo = _history.canUndo;
+      _canRedo = _history.canRedo;
+    });
+    widget.db.saveDraft(id: widget.thought.id, content: s.text);
+    HapticFeedback.selectionClick();
+  }
+
+  void _applyFormat(MdFormat f) {
+    final text = _controller.text;
+    final sel = _controller.selection;
+    if (f.id == 'hr') {
+      _applyEdit(MarkdownEdit.insertLine(text, sel, '---'));
+      return;
+    }
+    if (f.isInline) {
+      _applyEdit(MarkdownEdit.toggleInline(text, sel, f.inline, f.placeholder));
+      return;
+    }
+    // 行首前缀型：族内按「点击次数轮转」，第三次回到无前缀
+    final prefix = _nextPrefixFor(text, sel, f.linePrefixes);
+    _applyEdit(
+        MarkdownEdit.toggleLinePrefix(text, sel, prefix, f.linePrefixes));
+  }
+
+  /// 同一族前缀轮转：无 → 第 1 种 → 第 2 种 → … → 无
+  /// 这样用户点两次「列表」就得到有序列表，而不是要先取消再点另一个按钮。
+  ///
+  /// 匹配时必须**按长度倒序**：「- [ ] 买菜」以「- 」开头，若按族内原顺序
+  /// 匹配就会命中「- 」而永远推不到待办状态。
+  static String _nextPrefixFor(String text, TextSelection sel, List<String> family) {
+    final at = sel.start.clamp(0, text.length);
+    final lineStart = at == 0 ? 0 : (text.lastIndexOf('\n', at - 1) + 1);
+    var lineEnd = text.indexOf('\n', at);
+    if (lineEnd < 0) lineEnd = text.length;
+    final line = text.substring(lineStart, lineEnd).trimLeft();
+
+    if (sel.start != sel.end) {
+      // 有选区时：全部已带某前缀 → 回到无前缀（toggleLinePrefix 自己判）
+      return family.first;
+    }
+    final byLength = family.asMap().entries.toList()
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+    for (final e in byLength) {
+      if (line.startsWith(e.value)) {
+        // 回到「族内原顺序」的下一项，保证轮转顺序符合工具条展示顺序
+        final next = e.key + 1;
+        return next < family.length ? family[next] : '';
+      }
+    }
+    return family.first;
+  }
+
+  void _insertTimestamp() {
+    final now = DateTime.now();
+    final snippet = DateFormat('yyyy/MM/dd HH:mm').format(now);
+    _applyEdit(MarkdownEdit.insertText(_controller.text, _controller.selection, snippet));
+  }
+
+  Future<void> _findReplace() async {
+    final result = await FindReplaceSheet.open(context, _controller.text);
+    if (result == null || !mounted) return;
+    _applyEdit(EditResult(result.text, TextSelection.collapsed(offset: result.firstIndex)));
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(result.replaced == 0
+            ? '没有替换任何内容'
+            : '已替换 ${result.replaced} 处'),
+        duration: const Duration(seconds: 2),
+      ));
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final db = widget.db;
-    return Scaffold(
-      appBar: AppBar(
-        title: StreamBuilder<List<Stage>>(
-          stream: db.watchStages(),
-          builder: (context, sSnap) {
-            final stages = sSnap.data ?? const <Stage>[];
-            final stage = stageById(stages, widget.thought.stageId) ??
-                Stage(
-                    id: 1,
-                    name: '灵感',
-                    kind: 'inspiration',
-                    color: '#A8B9E6',
-                    position: 1.0,
-                    isSystem: true,
-                    createdAt: 0);
-            // 原来这里是「点一下自动推进到下一态」的隐藏开关：用户看得见
-            // 一滴水加一个 sync 图标，但不知道点一下会变成什么。改成点开
-            // 三态菜单，把「推进」和「直接选」都摆在明面上。
-            return InkWell(
-              borderRadius: BorderRadius.circular(8),
-              onTap: () => _pickStage(context, stages, stage),
-              child: Padding(
-                padding:
-                    const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                child: Row(mainAxisSize: MainAxisSize.min, children: [
-                  DropBadge(kind: stage.kind, color: hexToColor(stage.color), size: 18),
-                  const SizedBox(width: 6),
-                  Text(stage.name, style: const TextStyle(fontSize: 14)),
-                  const SizedBox(width: 4),
-                  const Icon(Icons.expand_more, size: 16, color: T.inkSecondary),
-                ]),
+    // 桌面端快捷键：Ctrl+Z 撤销、Ctrl+Shift+Z / Ctrl+Y 重做、Ctrl+F 查找
+    // 手机没有物理键盘，这层对 Windows 版才有意义（本项目主力调试平台）。
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyZ, control: true): _undo,
+        const SingleActivator(LogicalKeyboardKey.keyZ, control: true, shift: true): _redo,
+        const SingleActivator(LogicalKeyboardKey.keyY, control: true): _redo,
+        const SingleActivator(LogicalKeyboardKey.keyF, control: true): () {
+          _findReplace();
+        },
+        const SingleActivator(LogicalKeyboardKey.keyP, control: true): () {
+          setState(() => _previewing = !_previewing);
+        },
+      },
+      child: Focus(
+        autofocus: false,
+        child: Scaffold(
+          appBar: _focusMode ? null : _buildAppBar(context, db),
+          body: Column(
+            children: [
+              Expanded(
+                child: _previewing
+                    ? PaperTexture(child: MarkdownPreview(_controller.text))
+                    : PaperTexture(
+                        child: TextField(
+                          controller: _controller,
+                          focusNode: _focusNode,
+                          onChanged: _onChanged,
+                          maxLines: null,
+                          expands: true,
+                          textAlignVertical: TextAlignVertical.top,
+                          keyboardType: TextInputType.multiline,
+                          textInputAction: TextInputAction.newline,
+                          // 桌面端 Tab 缩进；手机上 Tab 键不存在，无副作用
+                          scrollPadding: const EdgeInsets.only(bottom: 120),
+                          decoration: const InputDecoration(
+                            hintText: '想到什么写什么…\n\n可以用 # 标题、- 列表、> 引用',
+                            contentPadding:
+                                EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                            border: InputBorder.none,
+                          ),
+                        ),
+                      ),
               ),
-            );
-          },
+              if (!_previewing && !_focusMode)
+                _MetaBar(db: db, thought: widget.thought),
+              // 工具条：专注模式下也保留（专注是要写，不是要藏工具）
+              if (!_previewing)
+                EditToolbar(
+                  onUndo: _canUndo ? _undo : null,
+                  onRedo: _canRedo ? _redo : null,
+                  onFormat: _applyFormat,
+                  onFindReplace: _findReplace,
+                  onInsertTime: _insertTimestamp,
+                ),
+              if (!_focusMode)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
+                  child: Row(children: [
+                    Text('$_wordCount 字',
+                        style: TextStyle(
+                            fontSize: 11,
+                            color: _wordCount > 9000 ? T.warning : T.inkTertiary)),
+                    const SizedBox(width: 10),
+                    if (_focusMode)
+                      const Text('专注',
+                          style: TextStyle(fontSize: 11, color: T.brandPrimary)),
+                    const Spacer(),
+                    const Text('自动保存',
+                        style: TextStyle(fontSize: 11, color: T.inkTertiary)),
+                  ]),
+                ),
+            ],
+          ),
+          // 专注模式退出按钮：AppBar 藏起来了，必须留一个明确的出口
+          floatingActionButton: _focusMode
+              ? FloatingActionButton.small(
+                  tooltip: '退出专注',
+                  backgroundColor: T.inkPrimary.withValues(alpha: 0.08),
+                  foregroundColor: T.inkSecondary,
+                  elevation: 0,
+                  onPressed: () => setState(() => _focusMode = false),
+                  child: const Icon(Icons.fullscreen_exit, size: 20),
+                )
+              : null,
         ),
-        actions: [
-          // 提醒（v1.6）：到点弹通知，支持每天/每周/每月重复
-          StreamBuilder<List<Reminder>>(
-            stream: db.watchActiveReminderOf(widget.thought.id),
-            builder: (context, snap) {
-              final hasReminder = (snap.data ?? const <Reminder>[]).isNotEmpty;
-              return IconButton(
-                icon: Icon(
-                  hasReminder
-                      ? Icons.notifications_active
-                      : Icons.notifications_none,
-                  color: hasReminder ? T.brandPrimary : null,
-                ),
-                tooltip: hasReminder ? '提醒已设定' : '提醒我',
-                onPressed: () async {
-                  await ReminderSheet.open(context, db, widget.thought);
-                },
-              );
-            },
-          ),
-          // 标签编辑
-          IconButton(
-            icon: const Icon(Icons.label_outline),
-            tooltip: '标签',
-            onPressed: () => _editTags(context),
-          ),
-          // 文件夹归属切换
-          IconButton(
-            icon: const Icon(Icons.folder_open_outlined),
-            tooltip: '移动到文件夹',
-            onPressed: () => _pickFolder(context),
-          ),
-          IconButton(
-            icon: const Icon(Icons.delete_outline, color: T.danger),
-            tooltip: '删除',
-            onPressed: () => _delete(context),
-          ),
-        ],
-      ),
-      body: Column(
-        children: [
-          Expanded(
-            // 纸纹叠加在静态背景容器上（创意 ③-4），不进 TextField decoration
-            child: PaperTexture(
-              child: TextField(
-                controller: _controller,
-                onChanged: _onChanged,
-                maxLines: null,
-                expands: true,
-                textAlignVertical: TextAlignVertical.top,
-                decoration: const InputDecoration(
-                  hintText: '想到什么写什么…',
-                  contentPadding:
-                      EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  border: InputBorder.none,
-                ),
-              ),
-            ),
-          ),
-          _MetaBar(db: db, thought: widget.thought),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-            child: Row(children: [
-              Text('$_wordCount 字',
-                  style: TextStyle(
-                      fontSize: 11,
-                      color: _wordCount > 9000 ? T.warning : T.inkTertiary)),
-              const Spacer(),
-              const Text('自动保存',
-                  style: TextStyle(fontSize: 11, color: T.inkTertiary)),
-            ]),
-          ),
-        ],
       ),
     );
   }
+
+  PreferredSizeWidget _buildAppBar(BuildContext context, AppDatabase db) {
+    return AppBar(
+      title: StreamBuilder<List<Stage>>(
+        stream: db.watchStages(),
+        builder: (context, sSnap) {
+          final stages = sSnap.data ?? const <Stage>[];
+          final stage = stageById(stages, widget.thought.stageId) ??
+              Stage(
+                  id: 1,
+                  name: '灵感',
+                  kind: 'inspiration',
+                  color: '#A8B9E6',
+                  position: 1.0,
+                  isSystem: true,
+                  createdAt: 0);
+          // 原来这里是「点一下自动推进到下一态」的隐藏开关：用户看得见
+          // 一滴水加一个 sync 图标，但不知道点一下会变成什么。改成点开
+          // 三态菜单，把「推进」和「直接选」都摆在明面上。
+          return InkWell(
+            borderRadius: BorderRadius.circular(8),
+            onTap: () => _pickStage(context, stages, stage),
+            child: Padding(
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                DropBadge(kind: stage.kind, color: hexToColor(stage.color), size: 18),
+                const SizedBox(width: 6),
+                Text(stage.name, style: const TextStyle(fontSize: 14)),
+                const SizedBox(width: 4),
+                const Icon(Icons.expand_more, size: 16, color: T.inkSecondary),
+              ]),
+            ),
+          );
+        },
+      ),
+      actions: [
+        // 预览 / 编辑切换
+        IconButton(
+          icon: Icon(_previewing ? Icons.edit_outlined : Icons.visibility_outlined),
+          tooltip: _previewing ? '回到编辑' : '预览排版',
+          onPressed: () => setState(() => _previewing = !_previewing),
+        ),
+        // 专注模式
+        IconButton(
+          icon: const Icon(Icons.fullscreen),
+          tooltip: '专注模式',
+          onPressed: () => setState(() => _focusMode = true),
+        ),
+        // 溢出菜单：把低频动作（提醒/标签/文件夹/删除）收进来，
+        // 给上面的编辑类按钮腾出位置——之前 4 个 IconButton 挤在 375 宽上
+        // 会把标题状态区压扁。
+        PopupMenuButton<String>(
+          icon: const Icon(Icons.more_vert),
+          onSelected: (v) async {
+            switch (v) {
+              case 'reminder':
+                await ReminderSheet.open(context, widget.db, widget.thought);
+              case 'tag':
+                await _editTags(context);
+              case 'folder':
+                await _pickFolder(context);
+              case 'delete':
+                await _delete(context);
+            }
+          },
+          itemBuilder: (ctx) => [
+            // 提醒状态下显式标出来，否则用户要知道自己设过没只能点进去看。
+            // 这里不能用 StreamBuilder：PopupMenuButton.itemBuilder 要求返回
+            // PopupMenuEntry 列表，而 StreamBuilder 是 Widget，塞不进去；
+            // 所以提醒有无在 initState 里订阅成 _hasReminder 字段。
+            PopupMenuItem(
+              value: 'reminder',
+              child: ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(
+                    _hasReminder
+                        ? Icons.notifications_active
+                        : Icons.notifications_none,
+                    size: 20,
+                    color: _hasReminder ? T.brandPrimary : null),
+                title: Text(_hasReminder ? '修改提醒' : '提醒我'),
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'tag',
+              child: ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.label_outline, size: 20),
+                title: Text('标签'),
+              ),
+            ),
+            const PopupMenuItem(
+              value: 'folder',
+              child: ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.folder_open_outlined, size: 20),
+                title: Text('移动到文件夹'),
+              ),
+            ),
+            const PopupMenuDivider(),
+            const PopupMenuItem(
+              value: 'delete',
+              child: ListTile(
+                dense: true,
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.delete_outline, size: 20, color: T.danger),
+                title: Text('删除', style: TextStyle(color: T.danger)),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
 
   /// 三态选择面板：列出当前所有阶段，选中即落库并弹撤销条。
   ///
