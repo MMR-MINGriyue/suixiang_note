@@ -232,7 +232,7 @@ void main() {
       final item = (await db.snapshotActiveReminders()).single;
       expect(item.headline.endsWith('…'), isTrue);
       expect(item.headline.length, 41, reason: '40 字 + 省略号');
-      expect(item.headline, longTitle.substring(0, 40) + '…');
+      expect(item.headline, '${longTitle.substring(0, 40)}…');
     });
 
     test('标题与正文都为空时回落为「随想随记」', () async {
