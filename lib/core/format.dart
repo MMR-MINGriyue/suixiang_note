@@ -1,4 +1,24 @@
 import '../data/app_database.dart';
+import 'package:flutter/painting.dart' show Color;
+
+/// 统一的字数口径：去空白后的字符数。
+///
+/// 抽出来的理由（架构评审 B1）：同一条正则原来在
+/// saveDraft / quick_capture_sheet / detail_page 各写一份，
+/// 改口径（比如想把英文按词算）要同步三处。
+int countWords(String text) => text.replaceAll(RegExp(r'\s'), '').length;
+
+/// 数据库里的 `#RRGGBB` 字符串 → Color。
+///
+/// 抽出来的理由（架构评审 B3）：`replaceFirst('#')` + tryParse 原来散在
+/// 10+ 处，一部分用 `tryParse` 有兜底、一部分直接 `int.parse`（脏数据
+/// 直接崩）；抽掉后统一走 tryParse + fallback。
+/// 从 hexToColor（widgets/color_palette.dart）挪过来：纯函数放 core，
+/// UI 组件反向引用纯函数层才不会成环。
+Color parseHexColor(String hex, {Color fallback = const Color(0xFF4C6FFF)}) {
+  final c = int.tryParse(hex.replaceFirst('#', '0xFF'));
+  return c != null ? Color(c) : fallback;
+}
 
 /// 三态推进的纯函数集合。
 ///

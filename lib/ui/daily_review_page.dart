@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
+import '../core/format.dart';
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
 import 'detail_page.dart';
@@ -327,8 +328,5 @@ class _ReviewCard extends StatelessWidget {
     );
   }
 
-  static Color _hex(String raw) {
-    final v = int.tryParse(raw.replaceFirst('#', ''), radix: 16);
-    return v == null ? T.brandPrimary : Color(0xFF000000 | v);
-  }
+  static Color _hex(String raw) => parseHexColor(raw, fallback: T.brandPrimary);
 }

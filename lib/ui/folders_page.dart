@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../data/app_database.dart';
-import '../main.dart' show appDb;
+import '../core/app_signals.dart';
 import '../theme/tokens.dart';
 import 'widgets/color_palette.dart';
 import 'widgets/empty_state.dart';

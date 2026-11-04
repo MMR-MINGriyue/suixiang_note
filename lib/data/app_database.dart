@@ -262,15 +262,18 @@ class AppDatabase extends _$AppDatabase {
   ///
   /// 返回落定的新阶段，供调用方做反馈（SnackBar 文案、触觉、撤销条）；
   /// 原来返回 void，界面只能靠猜「应该变了吧」。
-  Future<Stage?> advanceStage(int thoughtId) async {
-    final all = await _orderedStages();
-    if (all.isEmpty) return null;
-    final thought = await _thoughtById(thoughtId);
-    if (thought == null) return null;
-    final next = nextStageOf(all, thought.stageId);
-    if (next == null) return null;
-    await _writeStage(thoughtId, next);
-    return next;
+  /// 读-算-写包在事务里（架构评审 D3）：否则两个入口同时落态会互相覆盖。
+  Future<Stage?> advanceStage(int thoughtId) {
+    return transaction(() async {
+      final all = await _orderedStages();
+      if (all.isEmpty) return null;
+      final thought = await _thoughtById(thoughtId);
+      if (thought == null) return null;
+      final next = nextStageOf(all, thought.stageId);
+      if (next == null) return null;
+      await _writeStage(thoughtId, next);
+      return next;
+    });
   }
 
   /// 退回上一态（长按 / 菜单用）。
@@ -278,15 +281,17 @@ class AppDatabase extends _$AppDatabase {
   /// 单向循环逼得用户「已完成 → 灵感 → 推进中」绕两圈才能退一步，
   /// UX 评审 B3 点名过；但这是个人工具，不是工作流引擎，
   /// 与其做拖动排序不如把「反方向」直接给出来。
-  Future<Stage?> previousStage(int thoughtId) async {
-    final all = await _orderedStages();
-    if (all.isEmpty) return null;
-    final thought = await _thoughtById(thoughtId);
-    if (thought == null) return null;
-    final prev = prevStageOf(all, thought.stageId);
-    if (prev == null) return null;
-    await _writeStage(thoughtId, prev);
-    return prev;
+  Future<Stage?> previousStage(int thoughtId) {
+    return transaction(() async {
+      final all = await _orderedStages();
+      if (all.isEmpty) return null;
+      final thought = await _thoughtById(thoughtId);
+      if (thought == null) return null;
+      final prev = prevStageOf(all, thought.stageId);
+      if (prev == null) return null;
+      await _writeStage(thoughtId, prev);
+      return prev;
+    });
   }
 
   /// 直接落到指定态（三态菜单 / 批量操作 / 撤销用）。
@@ -294,15 +299,17 @@ class AppDatabase extends _$AppDatabase {
   /// 与 advanceStage 的区别：不猜「下一个是谁」，由调用方给定目标，
   /// 因此同一条随记可以一步跳到「已完成」，也可以一步退回「灵感」。
   /// [stageId] 不存在时返回 null 且不写库（脏输入不落库）。
-  Future<Stage?> setStage(int thoughtId, int stageId) async {
-    final all = await _orderedStages();
-    final target = stageById(all, stageId);
-    if (target == null || target.id != stageId) return null;
-    final thought = await _thoughtById(thoughtId);
-    if (thought == null) return null;
-    if (thought.stageId == stageId) return target; // 同态不写库、不更新 updatedAt
-    await _writeStage(thoughtId, target);
-    return target;
+  Future<Stage?> setStage(int thoughtId, int stageId) {
+    return transaction(() async {
+      final all = await _orderedStages();
+      final target = stageById(all, stageId);
+      if (target == null || target.id != stageId) return null;
+      final thought = await _thoughtById(thoughtId);
+      if (thought == null) return null;
+      if (thought.stageId == stageId) return target; // 同态不写库、不更新 updatedAt
+      await _writeStage(thoughtId, target);
+      return target;
+    });
   }
 
   /// 批量落态；返回实际写入条数（同态被跳过的也计入，语义为「处理了」）
@@ -347,13 +354,19 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// 置顶/取消置顶（v1.0 仅置顶，归档暂缓 —— PM 结论）
-  Future<void> togglePin(int thoughtId) async {
-    final thought = await (select(thoughts)..where((t) => t.id.equals(thoughtId))).getSingle();
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await (update(thoughts)..where((t) => t.id.equals(thoughtId))).write(ThoughtsCompanion(
-      isPinned: Value(!thought.isPinned),
-      pinnedAt: Value(thought.isPinned ? null : now),
-    ));
+  /// 读-改-写包事务（架构评审 D3）：否则连点两次可能读到同一份旧状态。
+  Future<void> togglePin(int thoughtId) {
+    return transaction(() async {
+      final thought =
+          await (select(thoughts)..where((t) => t.id.equals(thoughtId)))
+              .getSingle();
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await (update(thoughts)..where((t) => t.id.equals(thoughtId)))
+          .write(ThoughtsCompanion(
+        isPinned: Value(!thought.isPinned),
+        pinnedAt: Value(thought.isPinned ? null : now),
+      ));
+    });
   }
 
   /// 软删 → 回收站
@@ -374,7 +387,7 @@ class AppDatabase extends _$AppDatabase {
         stageId: const Value(1).value, // 默认「灵感」
         title: Value(firstLine.length > 30 ? firstLine.substring(0, 30) : firstLine),
         content: Value(trimmed),
-        wordCount: Value(trimmed.replaceAll(RegExp(r'\s'), '').length),
+        wordCount: Value(countWords(trimmed)),
         createdAt: now,
         updatedAt: now,
         stageChangedAt: Value(now), // 新建即「进入灵感」的时刻
@@ -398,7 +411,7 @@ class AppDatabase extends _$AppDatabase {
     await (update(thoughts)..where((t) => t.id.equals(id))).write(ThoughtsCompanion(
       title: Value(firstLine.length > 30 ? firstLine.substring(0, 30) : firstLine),
       content: Value(trimmed),
-      wordCount: Value(trimmed.replaceAll(RegExp(r'\s'), '').length),
+      wordCount: Value(countWords(trimmed)),
       updatedAt: Value(now),
     ));
     return id;
@@ -442,12 +455,18 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// 删文件夹：软删 + 随记回收件箱（folder_id 置 NULL，PRD §4.4）
-  Future<void> deleteFolder(int folderId) async {
-    final now = DateTime.now().millisecondsSinceEpoch;
-    await (update(thoughts)..where((t) => t.folderId.equals(folderId) & t.deletedAt.isNull()))
-        .write(const ThoughtsCompanion(folderId: Value(null)));
-    await (update(folders)..where((f) => f.id.equals(folderId)))
-        .write(FoldersCompanion(deletedAt: Value(now)));
+  /// 两步同事务（架构评审 D3 同族）：否则中途失败会出现
+  /// 「文件夹已删但随记还指向它」的悬空引用。
+  Future<void> deleteFolder(int folderId) {
+    return transaction(() async {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      await (update(thoughts)
+              ..where((t) =>
+                  t.folderId.equals(folderId) & t.deletedAt.isNull()))
+          .write(const ThoughtsCompanion(folderId: Value(null)));
+      await (update(folders)..where((f) => f.id.equals(folderId)))
+          .write(FoldersCompanion(deletedAt: Value(now)));
+    });
   }
 
   // ═══════════════ 标签（v1.2：多对多打标 + 过滤 + 管理） ═══════════════
@@ -497,10 +516,15 @@ class AppDatabase extends _$AppDatabase {
   }
 
   /// 删标签：软删 + 清掉随记关联（PRD：删除标签不影响随记本身）
-  Future<void> deleteTag(int tagId) async {
-    await (delete(thoughtTags)..where((tt) => tt.tagId.equals(tagId))).go();
-    await (update(tags)..where((t) => t.id.equals(tagId)))
-        .write(TagsCompanion(deletedAt: Value(DateTime.now().millisecondsSinceEpoch)));
+  /// 两步写在同一事务里（架构评审 D3 同族）：否则中途失败会留下
+  /// 「标签已删但随记还挂着它」的悬空关联。
+  Future<void> deleteTag(int tagId) {
+    return transaction(() async {
+      await (delete(thoughtTags)..where((tt) => tt.tagId.equals(tagId))).go();
+      await (update(tags)..where((t) => t.id.equals(tagId))).write(
+          TagsCompanion(
+              deletedAt: Value(DateTime.now().millisecondsSinceEpoch)));
+    });
   }
 
   /// 替换式设置某随记的标签集合（详情页 chip 编辑）
@@ -530,17 +554,7 @@ class AppDatabase extends _$AppDatabase {
 
   /// watchList 的标签过滤：传 tagId 时仅显示打了该标签的随记
   Stream<List<Thought>> watchThoughtsByTag(int tagId) {
-    final query = select(thoughts).join([
-      innerJoin(thoughtTags, thoughtTags.thoughtId.equalsExp(thoughts.id)),
-    ])
-      ..where(thoughtTags.tagId.equals(tagId) &
-          thoughts.deletedAt.isNull() &
-          thoughts.isArchived.equals(false))
-      ..orderBy([
-        OrderingTerm.desc(thoughts.isPinned),
-        OrderingTerm.desc(thoughts.updatedAt),
-      ]);
-    return query.watch().map((rows) => rows.map((r) => r.readTable(thoughts)).toList());
+    return watchFeed(tagId: tagId);
   }
   // ═══════════════ 批量操作（v1.3：多选 → 批量打标/移动/置顶/删除） ═══════════════
 
@@ -638,23 +652,27 @@ class AppDatabase extends _$AppDatabase {
     String repeatRule = 'once',
   }) async {
     final now = DateTime.now().millisecondsSinceEpoch;
-    await (delete(reminders)
-          ..where((r) =>
-              r.thoughtId.equals(thoughtId) & r.status.equals('active')))
-        .go();
     final unit = switch (repeatRule) {
       'daily' => 'day',
       'weekly' => 'week',
       'monthly' => 'month',
       _ => null,
     };
-    return into(reminders).insert(RemindersCompanion.insert(
-        thoughtId: thoughtId,
-        remindAt: remindAt,
-        repeatRule: Value(repeatRule),
-        repeatInterval: Value(unit == null ? null : 1),
-        repeatUnit: Value(unit),
-        createdAt: now));
+    // 删旧 + 插新同一事务（架构评审 D3 同族）：一条随记只允许一个闹钟，
+    // 中途失败不能出现「两个 active」或「零个 active」。
+    return transaction(() async {
+      await (delete(reminders)
+            ..where((r) =>
+                r.thoughtId.equals(thoughtId) & r.status.equals('active')))
+          .go();
+      return into(reminders).insert(RemindersCompanion.insert(
+          thoughtId: thoughtId,
+          remindAt: remindAt,
+          repeatRule: Value(repeatRule),
+          repeatInterval: Value(unit == null ? null : 1),
+          repeatUnit: Value(unit),
+          createdAt: now));
+    });
   }
 
   Future<void> deleteReminder(int reminderId) async {

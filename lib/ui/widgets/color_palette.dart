@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/format.dart';
 import '../../theme/tokens.dart';
 
 /// 8 色标签板（与 tag_manage_page 同源）；文件夹抽屉网格换色用
@@ -14,10 +15,8 @@ const kPalette = <String>[
   '#8D9106', // 橄榄
 ];
 
-Color hexToColor(String hex, {Color fallback = T.brandPrimary}) {
-  final c = int.tryParse(hex.replaceFirst('#', '0xFF'));
-  return c != null ? Color(c) : fallback;
-}
+Color hexToColor(String hex, {Color fallback = T.brandPrimary}) =>
+      parseHexColor(hex, fallback: fallback);
 
 /// 新建/换色共用：8 色板选择行
 class ColorPickerRow extends StatelessWidget {

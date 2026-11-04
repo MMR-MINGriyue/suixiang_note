@@ -2,10 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'core/app_signals.dart';
 import 'core/launch_intent.dart';
 import 'core/pinyin_search.dart';
 import 'core/reminder_service.dart';
-import 'data/app_database.dart';
 import 'theme/tokens.dart';
 import 'ui/detail_page.dart';
 import 'ui/folders_page.dart';
@@ -31,11 +31,8 @@ Future<void> main() async {
   runApp(SuixiangApp(initialThemeMode: themeMode, initialLaunch: launch));
 }
 
-/// 全局单例 db（单进程本地 App，无需依赖注入框架）
-final appDb = AppDatabase();
-
-/// 全局主题状态（ValueNotifier 让「我的」页切主题免重启即时生效）
-final themeModeNotifier = ValueNotifier<ThemeMode>(ThemeMode.system);
+/// 全局单例与主题状态在 core/app_signals.dart（架构评审 C1：
+/// folders_page / profile_page / home_page 不再反向 import main.dart）。
 
 /// 外部入口二次唤起（应用已在后台时点小部件/通知栏）广播：
 /// AppShell 订阅它，收到就弹速记，不重建整个 App。
@@ -43,7 +40,7 @@ final launchIntentNotifier = ValueNotifier<LaunchIntent>(LaunchIntent.none);
 
 /// 「跳到归档视图」请求信号：长按图标选「归档」快捷方式时，
 /// 原生侧推一个 tick，首页监听后把过滤切到归档（不用重建首页、不用路由栈）。
-final archivedRequestTicker = ValueNotifier<int>(0);
+/// 定义在 core/app_signals.dart（架构评审 C1：UI 不得反向 import main.dart）。
 
 class SuixiangApp extends StatelessWidget {
   final ThemeMode initialThemeMode;

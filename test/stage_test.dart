@@ -242,5 +242,36 @@ void main() {
       expect((await get(a)).stageChangedAt, isNotNull);
       expect((await get(a)).stageId, 2);
     });
+
+    test('并发落态互不覆盖（advanceStage/setStage 在事务里，架构评审 D3）',
+        () async {
+      await freshDb();
+      final id = await seed('并发目标');
+      // 同一条随记同时发起「推进」与「直达已完成」：串行化保证最终态必然是
+      // 其中一个合法落点，且 completedAt 与 stageId 一致（不会出现
+      // 「stageId=2 但 completedAt 有值」的错位行）。
+      final results = await Future.wait(
+          [db.advanceStage(id), db.setStage(id, 3)]);
+      final t = await get(id);
+      expect(t.stageId, isIn([2, 3]));
+      if (t.stageId == 3) {
+        expect(t.completedAt, isNotNull);
+      } else {
+        expect(t.completedAt, isNull);
+      }
+      expect(results.whereType<Stage>().isNotEmpty, isTrue);
+    });
+
+    test('togglePin 连点两次回到原状（事务内的读-改-写，架构评审 D3）',
+        () async {
+      await freshDb();
+      final id = await seed('置顶对象');
+      // 串行连点两次：如果读-改-写不在同一事务，两次都可能读到同一份旧值
+      await db.togglePin(id);
+      await db.togglePin(id);
+      final t = await get(id);
+      expect(t.isPinned, isFalse, reason: '两次 toggle 必须净效果为零');
+      expect(t.pinnedAt, isNull);
+    });
   });
 }

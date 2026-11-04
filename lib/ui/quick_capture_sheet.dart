@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../data/app_database.dart';
+import '../core/format.dart';
 import '../theme/tokens.dart';
 import 'widgets/color_palette.dart';
 import 'widgets/empty_state.dart';
@@ -51,7 +52,7 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
       _controller.text = seed;
       _controller.selection =
           TextSelection.collapsed(offset: seed.length);
-      _wordCount = seed.replaceAll(RegExp(r'\s'), '').length;
+      _wordCount = countWords(seed);
     }
     // 进场即聚焦：目标「点 FAB → 可输入 ≤600ms」
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -70,7 +71,7 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
   }
 
   void _onChanged(String text) {
-    setState(() => _wordCount = text.replaceAll(RegExp(r'\s'), '').length);
+    setState(() => _wordCount = countWords(text));
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () async {
       final id = await widget.db.saveDraft(id: _savedId, content: text);

@@ -8,7 +8,7 @@ import 'package:intl/intl.dart';
 import '../core/format.dart';
 import '../core/pinyin_search.dart';
 import '../data/app_database.dart';
-import '../main.dart' show archivedRequestTicker;
+import '../core/app_signals.dart';
 import '../theme/tokens.dart';
 import 'daily_review_page.dart';
 import 'quick_capture_sheet.dart';
@@ -191,8 +191,7 @@ class _HomePageState extends State<HomePage> {
                     ...stages.map((s) => _FilterChip(
                           label: s.name,
                           selected: _stageFilter == s.id && !_showArchived,
-                          dotColor: Color(
-                              int.parse(s.color.replaceFirst('#', '0xFF'))),
+                          dotColor: parseHexColor(s.color),
                           onTap: () => setState(() {
                             // 再点一次取消，回到全部——与标签过滤同一心智
                             _stageFilter = _stageFilter == s.id ? null : s.id;
@@ -231,7 +230,7 @@ class _HomePageState extends State<HomePage> {
                               label: Text(t.name, style: const TextStyle(fontSize: 12)),
                               selected: _tagFilter == t.id,
                               avatar: Icon(Icons.label, size: 14,
-                                  color: Color(int.parse(t.color.replaceFirst('#', '0xFF')))),
+                                  color: parseHexColor(t.color)),
                               onSelected: (on) =>
                                   setState(() => _tagFilter = on ? t.id : null),
                             ),
@@ -702,8 +701,8 @@ class _NoteCard extends StatelessWidget {
                                           padding: const EdgeInsets.symmetric(
                                               horizontal: 8, vertical: 2),
                                           decoration: BoxDecoration(
-                                            color: Color(int.parse(t.color
-                                                    .replaceFirst('#', '0xFF')))
+                                            color: parseHexColor(t.color
+                                                    )
                                                 .withValues(alpha: 0.12),
                                             borderRadius:
                                                 BorderRadius.circular(999),
@@ -735,8 +734,7 @@ class _NoteCard extends StatelessWidget {
                                   message: '${stage.name} · 点击推进，长按选',
                                   child: DropBadge(
                                     kind: stage.kind,
-                                    color: Color(int.parse(
-                                        stage.color.replaceFirst('#', '0xFF'))),
+                                    color: parseHexColor(stage.color),
                                   ),
                                 ),
                               ),
@@ -791,7 +789,7 @@ class _NoteCard extends StatelessWidget {
           ...stages.map((s) => ListTile(
                 leading: DropBadge(
                     kind: s.kind,
-                    color: Color(int.parse(s.color.replaceFirst('#', '0xFF'))),
+                    color: parseHexColor(s.color),
                     size: 26),
                 title: Text(s.name,
                     style: TextStyle(
@@ -832,7 +830,7 @@ class _NoteCard extends StatelessWidget {
           ListTile(
             leading: DropBadge(
                 kind: stage.kind,
-                color: Color(int.parse(stage.color.replaceFirst('#', '0xFF'))),
+                color: parseHexColor(stage.color),
                 size: 24),
             title: Text('状态：${stage.name}'),
             subtitle: const Text('点开可选推进 / 退回',
@@ -1042,7 +1040,7 @@ class _BatchActionBar extends StatelessWidget {
           ...stages.map((s) => ListTile(
                 leading: DropBadge(
                     kind: s.kind,
-                    color: Color(int.parse(s.color.replaceFirst('#', '0xFF'))),
+                    color: parseHexColor(s.color),
                     size: 26),
                 title: Text(s.name, style: const TextStyle(fontSize: 15)),
                 onTap: () => Navigator.pop(ctx, s),
@@ -1167,8 +1165,7 @@ class _BatchTagSheetState extends State<_BatchTagSheet> {
                         selected: _picked.contains(t.id),
                         avatar: Icon(Icons.label,
                             size: 16,
-                            color: Color(int.parse(
-                                t.color.replaceFirst('#', '0xFF')))),
+                            color: parseHexColor(t.color)),
                         onSelected: (on) =>
                             setState(() => on ? _picked.add(t.id) : _picked.remove(t.id)),
                       ))

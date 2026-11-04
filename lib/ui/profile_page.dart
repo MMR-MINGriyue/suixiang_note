@@ -9,7 +9,7 @@ import '../core/app_info.dart';
 import '../core/reminder_service.dart';
 import '../data/backup_service.dart';
 import '../data/app_database.dart';
-import '../main.dart' show appDb, themeModeNotifier;
+import '../core/app_signals.dart';
 import '../theme/tokens.dart';
 import 'daily_review_page.dart';
 import 'graph_page.dart';
@@ -100,10 +100,13 @@ class _ProfilePageState extends State<ProfilePage> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
         content: Text('备份完成：${Uri.file(path).pathSegments.last}'),
-        action: SnackBarAction(
-          label: '打开目录',
-          onPressed: () => Process.run('explorer.exe', [File(path).parent.path]),
-        ),
+        action: Platform.isWindows
+            ? SnackBarAction(
+                label: '打开目录',
+                onPressed: () =>
+                    Process.run('explorer.exe', [File(path).parent.path]),
+              )
+            : null, // 架构评审 E3：explorer.exe 是 Windows 专属，Android 上不显示
       ));
     } catch (e) {
       if (!mounted) return;

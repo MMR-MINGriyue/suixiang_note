@@ -69,7 +69,7 @@ class _DetailPageState extends State<DetailPage> {
   void initState() {
     super.initState();
     _controller = TextEditingController(text: widget.thought.content);
-    _wordCount = widget.thought.content.replaceAll(RegExp(r'\s'), '').length;
+    _wordCount = countWords(widget.thought.content);
     _history = EditHistory(widget.thought.content);
     _sections = Outline.parse(widget.thought.content);
     _reminderSub = widget.db
@@ -106,7 +106,7 @@ class _DetailPageState extends State<DetailPage> {
 
   void _onChanged(String text) {
     setState(() {
-      _wordCount = text.replaceAll(RegExp(r'\s'), '').length;
+      _wordCount = countWords(text);
       _history.record(text, _controller.selection);
       _canUndo = _history.canUndo;
       _canRedo = _history.canRedo;
@@ -303,7 +303,7 @@ class _DetailPageState extends State<DetailPage> {
     _debounce?.cancel();
     _controller.value = TextEditingValue(text: r.text, selection: r.selection);
     setState(() {
-      _wordCount = r.text.replaceAll(RegExp(r'\s'), '').length;
+      _wordCount = countWords(r.text);
       _history.record(r.text, r.selection, coalesce: coalesce);
       _canUndo = _history.canUndo;
       _canRedo = _history.canRedo;
@@ -323,7 +323,7 @@ class _DetailPageState extends State<DetailPage> {
     _debounce?.cancel();
     _controller.value = TextEditingValue(text: s.text, selection: s.selection);
     setState(() {
-      _wordCount = s.text.replaceAll(RegExp(r'\s'), '').length;
+      _wordCount = countWords(s.text);
       _canUndo = _history.canUndo;
       _canRedo = _history.canRedo;
     });
@@ -337,7 +337,7 @@ class _DetailPageState extends State<DetailPage> {
     _debounce?.cancel();
     _controller.value = TextEditingValue(text: s.text, selection: s.selection);
     setState(() {
-      _wordCount = s.text.replaceAll(RegExp(r'\s'), '').length;
+      _wordCount = countWords(s.text);
       _canUndo = _history.canUndo;
       _canRedo = _history.canRedo;
     });
@@ -844,7 +844,7 @@ class _TagPickerSheetState extends State<_TagPickerSheet> {
     super.dispose();
   }
 
-  Color _tagColor(Tag t) => Color(int.parse(t.color.replaceFirst('#', '0xFF')));
+  Color _tagColor(Tag t) => parseHexColor(t.color);
 
   Future<void> _createTag() async {
     final name = _newCtrl.text.trim();
