@@ -4,6 +4,7 @@ import '../data/app_database.dart';
 import '../main.dart' show appDb;
 import '../theme/tokens.dart';
 import 'widgets/color_palette.dart';
+import 'widgets/empty_state.dart';
 
 /// Tab 1 文件夹（美化 P1 ④-1/④-2）：
 /// 收件箱通栏头卡（计数徽章化）+ 2 列 8 色抽屉网格 + 新建选色/长按换色/左滑删除
@@ -31,6 +32,16 @@ class FoldersPage extends StatelessWidget {
             stream: _inboxCount(),
             builder: (context, inboxSnap) {
               final inboxCount = inboxSnap.data ?? 0;
+              // 空态：仅有收件箱时展示插画引导（创意 ④-3）
+              if (items.isEmpty) {
+                return EmptyState(
+                  illus: 'empty_folder.png',
+                  title: '空空如也，去随记里挑几条住进来',
+                  subtitle: '或点右下角「新建」，给想法安个家',
+                  actionLabel: '新建文件夹',
+                  onAction: () => _showCreateDialog(context),
+                );
+              }
               return GridView.count(
                 crossAxisCount: 2,
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),

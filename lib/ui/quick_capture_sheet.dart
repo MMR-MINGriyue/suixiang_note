@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
 import 'widgets/color_palette.dart';
+import 'widgets/empty_state.dart';
 
 /// 速记捕捉页：模态全屏，自动落库（500ms 防抖），无保存按钮（PRD §4.1）
 class QuickCaptureSheet extends StatefulWidget {
@@ -123,22 +124,25 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
             ]),
             const SizedBox(height: 8),
             // 创意 ②-2：纸面放大——17px 正文 / 1.7 行高，写字像在纸上
-            TextField(
-              controller: _controller,
-              focusNode: _focus,
-              maxLines: null,
-              minLines: 7,
-              onChanged: _onChanged,
-              textInputAction: TextInputAction.newline,
-              decoration: InputDecoration(
-                hintText: '第一个念头，从一颗水滴开始…',
-                hintStyle: const TextStyle(color: T.inkTertiary, fontSize: 16),
-                border: InputBorder.none,
+            // 创意 ③-4：纸纹叠在静态容器，不进 TextField decoration
+            PaperTexture(
+              child: TextField(
+                controller: _controller,
+                focusNode: _focus,
+                maxLines: null,
+                minLines: 7,
+                onChanged: _onChanged,
+                textInputAction: TextInputAction.newline,
+                decoration: InputDecoration(
+                  hintText: '第一个念头，从一颗水滴开始…',
+                  hintStyle: const TextStyle(color: T.inkTertiary, fontSize: 16),
+                  border: InputBorder.none,
+                ),
+                style: const TextStyle(
+                    fontSize: 17,
+                    height: 1.7,
+                    color: T.inkPrimary),
               ),
-              style: const TextStyle(
-                  fontSize: 17,
-                  height: 1.7,
-                  color: T.inkPrimary),
             ),
             // 创意 ②-3：快捷 chip 行——不打断书写就能打标签/归文件夹
             _QuickMetaChips(

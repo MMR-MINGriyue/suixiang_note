@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
 import 'widgets/color_palette.dart';
+import 'widgets/empty_state.dart';
 
 /// 详情/编辑页：复用速记的自动落库逻辑（500ms 防抖），增加文件夹归属切换
 /// 打开方式：Navigator.push 全屏页（区别于速记的模态弹层）
@@ -131,17 +132,20 @@ class _DetailPageState extends State<DetailPage> {
       body: Column(
         children: [
           Expanded(
-            child: TextField(
-              controller: _controller,
-              onChanged: _onChanged,
-              maxLines: null,
-              expands: true,
-              textAlignVertical: TextAlignVertical.top,
-              decoration: const InputDecoration(
-                hintText: '想到什么写什么…',
-                contentPadding:
-                    EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                border: InputBorder.none,
+            // 纸纹叠加在静态背景容器上（创意 ③-4），不进 TextField decoration
+            child: PaperTexture(
+              child: TextField(
+                controller: _controller,
+                onChanged: _onChanged,
+                maxLines: null,
+                expands: true,
+                textAlignVertical: TextAlignVertical.top,
+                decoration: const InputDecoration(
+                  hintText: '想到什么写什么…',
+                  contentPadding:
+                      EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                  border: InputBorder.none,
+                ),
               ),
             ),
           ),

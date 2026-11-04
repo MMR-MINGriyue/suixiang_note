@@ -10,6 +10,7 @@ import 'quick_capture_sheet.dart';
 import 'detail_page.dart';
 import 'trash_page.dart';
 import 'widgets/drop_badge.dart';
+import 'widgets/empty_state.dart';
 
 /// 首页「灵感流」：搜索栏 + 置顶优先列表；单击水滴切三态（主线 C：1 次点击推进）
 class HomePage extends StatefulWidget {
@@ -727,22 +728,16 @@ class _ActionItem extends StatelessWidget {
   }
 }
 
-/// 空态：悬落水滴 + 引导文案
+/// 空态：「纸 + 水滴」线稿插画 + 引导文案（创意 ④-3 复用统一 EmptyState）
 class _EmptyState extends StatelessWidget {
   const _EmptyState();
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    return Center(
-      child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-        const DropBadge(kind: 'inspiration', color: T.stageInspiration, size: 48),
-        const SizedBox(height: 16),
-        Text('第一个念头，从一颗水滴开始', style: theme.textTheme.titleMedium),
-        const SizedBox(height: 6),
-        Text('点右下角按钮，想到什么写什么',
-            style: theme.textTheme.bodySmall?.copyWith(color: T.inkSecondary)),
-      ]),
+    return const EmptyState(
+      illus: 'empty_home.png',
+      title: '第一个念头，从一颗水滴开始',
+      subtitle: '点右下角按钮，想到什么写什么',
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
+import 'widgets/empty_state.dart';
 
 /// 回收站：软删随记列表，支持恢复 / 彻底删除 / 清空。
 /// 美化 P2-⑥：恢复主按钮化、彻底删除收进菜单、删除时长纯陈述（PRD 无自动清除机制）。
@@ -31,18 +32,10 @@ class TrashPage extends StatelessWidget {
           }
           final list = snap.data!;
           if (list.isEmpty) {
-            return Center(
-              child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    const Icon(Icons.delete_outline, size: 44, color: T.inkTertiary),
-                    const SizedBox(height: 12),
-                    Text('都处理完了，纸面很干净',
-                        style: Theme.of(context).textTheme.titleMedium),
-                    const SizedBox(height: 4),
-                    const Text('删除的随记会先在这里停留，随时可以恢复',
-                        style: TextStyle(fontSize: 12, color: T.inkTertiary)),
-                  ]),
+            return const EmptyState(
+              illus: 'empty_trash.png',
+              title: '都处理完了，纸面很干净',
+              subtitle: '删除的随记会先在这里停留，随时可以恢复',
             );
           }
           return ListView.separated(
