@@ -3,8 +3,10 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/launch_intent.dart';
+import 'core/reminder_service.dart';
 import 'data/app_database.dart';
 import 'theme/tokens.dart';
+import 'ui/detail_page.dart';
 import 'ui/folders_page.dart';
 import 'ui/home_page.dart';
 import 'ui/profile_page.dart';
@@ -70,13 +72,14 @@ class AppShell extends StatefulWidget {
   State<AppShell> createState() => _AppShellState();
 }
 
-class _AppShellState extends State<AppShell> {
+class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int _index = 0;
   static const _launchChannel = MethodChannel('suixiang/launch');
 
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     // 冷启动带着 capture：等首帧后再弹，否则 Navigator 还没有 Overlay
     if (widget.initialLaunch.isCapture) {
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -87,7 +90,14 @@ class _AppShellState extends State<AppShell> {
         setState(() => _index = 0);
         archivedRequestTicker.value++;
       });
+    } else if (widget.initialLaunch.thoughtId != null) {
+      // 从提醒通知点进来：suixiang://thought/<id> 直达该条随记
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _handleOpenThought(widget.initialLaunch.thoughtId!);
+      });
     }
+    // 提醒应用内兜底：首帧后对账一次，防 Doze/后台限制把系统闹钟吞掉
+    WidgetsBinding.instance.addPostFrameCallback((_) => _reconcileReminders());
     // 热启动（应用在后台时被唤起）：原生侧推 onIntent 过来
     _launchChannel.setMethodCallHandler((call) async {
       if (call.method == 'onIntent') {
@@ -101,12 +111,66 @@ class _AppShellState extends State<AppShell> {
           if (!mounted) return null;
           setState(() => _index = 0);
           archivedRequestTicker.value++;
+        } else if (parsed.thoughtId != null) {
+          _handleOpenThought(parsed.thoughtId!);
         } else if (parsed.isCapture || action == 'capture') {
           _handleCapture(text ?? parsed.text);
         }
       }
       return null;
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _launchChannel.setMethodCallHandler(null);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // 每次回前台都对账一次：这是「用户不开通知权限也不漏提醒」的兜底路径
+    if (state == AppLifecycleState.resumed) {
+      _reconcileReminders();
+    }
+  }
+
+  /// 提醒对账：把已过期但未通知的提醒捞出来，用应用内弹层提示
+  Future<void> _reconcileReminders() async {
+    if (!mounted) return;
+    final due = await ReminderService.reconcile(appDb);
+    if (due.isEmpty || !mounted) return;
+    setState(() => _index = 0);
+    final first = due.first;
+    final messenger = ScaffoldMessenger.of(context);
+    messenger.showSnackBar(SnackBar(
+      content: Text(
+        due.length == 1
+            ? '提醒：${first.headline}'
+            : '有 ${due.length} 条提醒到点了（第一条：${first.headline}）',
+      ),
+      duration: const Duration(seconds: 6),
+      action: SnackBarAction(
+        label: '查看',
+        onPressed: () => _handleOpenThought(first.thought.id),
+      ),
+    ));
+    // 重新排一遍剩余的（重复提醒在原生侧已续期，这里补漏掉的一次性提醒不需要动作）
+    if (ReminderService.supported) {
+      await ReminderService.rescheduleAll(appDb);
+    }
+  }
+
+  Future<void> _handleOpenThought(int thoughtId) async {
+    if (!mounted) return;
+    final thought = await appDb.getThought(thoughtId);
+    if (thought == null || !mounted) return;
+    setState(() => _index = 0);
+    await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (_) => DetailPage(db: appDb, thought: thought)),
+    );
   }
 
   Future<void> _handleCapture(String? text) async {

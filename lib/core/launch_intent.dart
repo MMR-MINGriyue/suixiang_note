@@ -2,21 +2,26 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
-/// 启动意图：外部入口（桌面小部件 / 通知栏常驻 / 系统分享 / 长按图标快捷方式）
-/// 唤起应用时，需要告诉 App「直接打开速记」而不是落在首页。
+/// 启动意图：外部入口（桌面小部件 / 通知栏常驻 / 系统分享 / 长按图标快捷方式 /
+/// 提醒通知）唤起应用时，需要告诉 App「直接打开某个东西」而不是落在首页。
 ///
 /// 只有一个入口类，避免每个外部入口各写一套解析：
 /// - `suixiang://capture`、`suixiang://capture?text=xxx`（深链 / 小部件 / 快捷方式）
-/// - 系统分享（SEND intent）：action=android.intent.action.SEND，正文在 extra 里
+/// - `suixiang://archived`（长按图标「归档」）
+/// - `suixiang://thought/<id>`（提醒通知点击，直达该条随记）
+/// - 系统分享（SEND intent）：正文在 extra 里
 /// - `-capture` 命令行参数（Windows 桌面端，供未来托盘右键「记一条」复用）
 class LaunchIntent {
-  /// capture = 直接弹出速记面板并聚焦输入
+  /// capture / archived / openThought
   final String? action;
 
   /// 预填正文（分享进来的文字 / 预填草稿）
   final String? text;
 
-  const LaunchIntent({this.action, this.text});
+  /// action=openThought 时指向的随记 id
+  final int? thoughtId;
+
+  const LaunchIntent({this.action, this.text, this.thoughtId});
 
   static const none = LaunchIntent();
 
@@ -36,6 +41,16 @@ class LaunchIntent {
     if (host == 'archived') {
       return const LaunchIntent(action: 'archived');
     }
+    if (host == 'thought') {
+      // suixiang://thought/123 或 suixiang://thought?id=123
+      final fromQuery = int.tryParse(parsed.queryParameters['id'] ?? '');
+      final fromPath = parsed.pathSegments.isEmpty
+          ? null
+          : int.tryParse(parsed.pathSegments.first);
+      final id = fromQuery ?? fromPath;
+      if (id == null) return none;
+      return LaunchIntent(action: 'openThought', thoughtId: id);
+    }
     if (host != 'capture') return none;
     final text = parsed.queryParameters['text'];
     return LaunchIntent(
@@ -48,6 +63,7 @@ class LaunchIntent {
   factory LaunchIntent.parseArgs(List<String> args) {
     var capture = false;
     var archived = false;
+    int? thoughtId;
     String? text;
     for (final a in args) {
       if (a == '-capture' || a == '--capture') {
@@ -59,10 +75,15 @@ class LaunchIntent {
           text = u.text;
         } else if (u.isArchived) {
           archived = true;
+        } else if (u.thoughtId != null) {
+          thoughtId = u.thoughtId;
         }
       } else if (a.startsWith('-text=')) {
         text = a.substring('-text='.length);
       }
+    }
+    if (thoughtId != null) {
+      return LaunchIntent(action: 'openThought', thoughtId: thoughtId);
     }
     if (capture) return LaunchIntent(action: 'capture', text: text);
     if (archived) return const LaunchIntent(action: 'archived');

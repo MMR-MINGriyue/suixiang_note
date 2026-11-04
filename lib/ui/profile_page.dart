@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../core/reminder_service.dart';
 import '../data/backup_service.dart';
 import '../data/app_database.dart';
 import '../main.dart' show appDb, themeModeNotifier;
@@ -31,6 +32,9 @@ class _ProfilePageState extends State<ProfilePage> {
   bool _quickEntry = false;
   static const _launchChannel = MethodChannel('suixiang/launch');
 
+  /// 精确闹钟权限（Android 12+）。false 时提醒会降级为非精确，页面上要给提示。
+  bool _exactAlarmOk = true;
+
   @override
   void initState() {
     super.initState();
@@ -41,6 +45,24 @@ class _ProfilePageState extends State<ProfilePage> {
         _quickEntry = p.getBool('quick_entry_on') ?? false;
       });
     });
+    // 启动时把库里所有 active 提醒重排一遍：AlarmManager 的排程在进程外，
+    // App 被重装/清数据/系统清理后原始闹钟就没了，全量重排是唯一能自愈的方式
+    ReminderService.rescheduleAll(appDb);
+    ReminderService.canScheduleExact().then((ok) {
+      if (!mounted) return;
+      setState(() => _exactAlarmOk = ok);
+    });
+  }
+
+  /// 提醒时间的人话表述（重复提醒显示规则，一次性显示具体时刻）
+  String _reminderLabel(ReminderWithThought it) {
+    final at = DateTime.fromMillisecondsSinceEpoch(it.reminder.remindAt);
+    return switch (it.reminder.repeatRule) {
+      'daily' => '每天 ${DateFormat('HH:mm').format(at)}',
+      'weekly' => '每周 ${DateFormat('E HH:mm').format(at)}',
+      'monthly' => '每月 ${DateFormat('d日 HH:mm').format(at)}',
+      _ => DateFormat('M月d日 HH:mm').format(at),
+    };
   }
 
   Future<void> _toggleQuickEntry(bool on) async {
@@ -235,6 +257,82 @@ class _ProfilePageState extends State<ProfilePage> {
               ),
             ]),
           ),
+          _SectionHeader('提醒', color: T.warning),
+          Card(
+            child: StreamBuilder<List<ReminderWithThought>>(
+              stream: appDb.watchUpcomingReminders(),
+              builder: (context, snap) {
+                final items = snap.data ?? const <ReminderWithThought>[];
+                if (items.isEmpty) {
+                  return const ListTile(
+                    leading: Icon(Icons.notifications_none,
+                        color: T.inkTertiary),
+                    title: Text('还没有提醒'),
+                    subtitle: Text('在随记详情页点铃铛，就能让它到点提醒你'),
+                  );
+                }
+                return Column(children: [
+                  for (final it in items.take(8))
+                    ListTile(
+                      dense: true,
+                      leading: Icon(
+                        it.isRepeating ? Icons.repeat : Icons.alarm,
+                        size: 20,
+                        color: T.brandPrimary,
+                      ),
+                      title: Text(it.headline,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(fontSize: 14)),
+                      subtitle: Text(_reminderLabel(it),
+                          style:
+                              const TextStyle(fontSize: 11, color: T.inkTertiary)),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.close, size: 18),
+                        tooltip: '取消这个提醒',
+                        onPressed: () async {
+                          await appDb.deleteReminder(it.reminder.id);
+                          await ReminderService.cancel(it.reminder.id);
+                        },
+                      ),
+                    ),
+                  if (items.length > 8)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                      child: Text('另有 ${items.length - 8} 条待提醒',
+                          style: const TextStyle(
+                              fontSize: 11, color: T.inkTertiary)),
+                    ),
+                ]);
+              },
+            ),
+          ),
+          if (ReminderService.supported && !_exactAlarmOk)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(4, 8, 4, 0),
+              child: InkWell(
+                onTap: () async {
+                  await ReminderService.openExactAlarmSettings();
+                },
+                child: Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: T.warning.withValues(alpha: 0.12),
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: const Row(children: [
+                    Icon(Icons.info_outline, size: 16, color: T.warning),
+                    SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        '系统未允许精确提醒，闹钟可能晚几分钟。点此去开启',
+                        style: TextStyle(fontSize: 12, color: T.inkSecondary),
+                      ),
+                    ),
+                  ]),
+                ),
+              ),
+            ),
           _SectionHeader('数据', color: T.stageDone),
           Card(
             child: Column(children: [

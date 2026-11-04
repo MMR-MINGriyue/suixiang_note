@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
+import 'reminder_sheet.dart';
 import 'widgets/color_palette.dart';
 import 'widgets/empty_state.dart';
 
@@ -110,6 +111,25 @@ class _DetailPageState extends State<DetailPage> {
           },
         ),
         actions: [
+          // 提醒（v1.6）：到点弹通知，支持每天/每周/每月重复
+          StreamBuilder<List<Reminder>>(
+            stream: db.watchActiveReminderOf(widget.thought.id),
+            builder: (context, snap) {
+              final hasReminder = (snap.data ?? const <Reminder>[]).isNotEmpty;
+              return IconButton(
+                icon: Icon(
+                  hasReminder
+                      ? Icons.notifications_active
+                      : Icons.notifications_none,
+                  color: hasReminder ? T.brandPrimary : null,
+                ),
+                tooltip: hasReminder ? '提醒已设定' : '提醒我',
+                onPressed: () async {
+                  await ReminderSheet.open(context, db, widget.thought);
+                },
+              );
+            },
+          ),
           // 标签编辑
           IconButton(
             icon: const Icon(Icons.label_outline),
@@ -422,9 +442,34 @@ class _MetaBar extends StatelessWidget {
             );
           },
         ),
+        // 提醒行：已设提醒时显示「几点响」+ 重复规则（v1.6）
+        StreamBuilder<List<Reminder>>(
+          stream: db.watchActiveReminderOf(thought.id),
+          builder: (context, snap) {
+            final list = snap.data ?? const <Reminder>[];
+            if (list.isEmpty) return const SizedBox.shrink();
+            final r = list.first;
+            final at = DateTime.fromMillisecondsSinceEpoch(r.remindAt);
+            final label = switch (r.repeatRule) {
+              'daily' => '每天 ${DateFormat('HH:mm').format(at)}',
+              'weekly' => '每周 ${DateFormat('E HH:mm').format(at)}',
+              'monthly' => '每月 ${DateFormat('d日 HH:mm').format(at)}',
+              _ => DateFormat('M月d日 HH:mm').format(at),
+            };
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Row(children: [
+                const Icon(Icons.alarm_on, size: 14, color: T.brandPrimary),
+                const SizedBox(width: 6),
+                Text(label,
+                    style: const TextStyle(
+                        fontSize: 11, color: T.brandPrimary)),
+              ]),
+            );
+          },
+        ),
         // 文件夹 + 时间戳行
-        Row(children: [
-          StreamBuilder<List<FolderWithCount>>(
+        Row(children: [          StreamBuilder<List<FolderWithCount>>(
             stream: db.watchFoldersWithCount(),
             builder: (context, snap) {
               final folders = snap.data ?? const <FolderWithCount>[];

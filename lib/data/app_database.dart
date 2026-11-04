@@ -491,6 +491,114 @@ class AppDatabase extends _$AppDatabase {
             pinnedAt: Value(pinned ? now : null)));
   }
 
+  // ═══════════════ 提醒（v1.6，竞品分析短板②：字段早已齐全但 UI 零实现） ═══════════════
+
+  /// 一条随记最多一个 active 提醒 —— 这是刻意的产品约束：
+  /// 同一条想法挂多个闹钟，用户自己都记不清哪个会响，UI 也必然变复杂。
+  Stream<List<Reminder>> watchActiveReminderOf(int thoughtId) {
+    return (select(reminders)
+          ..where((r) =>
+              r.thoughtId.equals(thoughtId) & r.status.equals('active'))
+          ..orderBy([(r) => OrderingTerm.asc(r.remindAt)]))
+        .watch();
+  }
+
+  /// 全部待触发提醒（含随记正文，供「我的」页汇总和启动对账）
+  Stream<List<ReminderWithThought>> watchUpcomingReminders() {
+    final query = select(reminders).join([
+      innerJoin(thoughts, thoughts.id.equalsExp(reminders.thoughtId)),
+    ])
+      ..where(reminders.status.equals('active') & thoughts.deletedAt.isNull())
+      ..orderBy([OrderingTerm.asc(reminders.remindAt)]);
+    return query.watch().map((rows) => rows
+        .map((r) => ReminderWithThought(
+            r.readTable(reminders), r.readTable(thoughts)))
+        .toList());
+  }
+
+  /// 已到期但还没被系统通知过的提醒（启动/回前台时补提示，防 Doze 静默丢弃）
+  Future<List<ReminderWithThought>> takeDueReminders({int? now}) async {
+    final ts = now ?? DateTime.now().millisecondsSinceEpoch;
+    final query = select(reminders).join([
+      innerJoin(thoughts, thoughts.id.equalsExp(reminders.thoughtId)),
+    ])
+      ..where(reminders.status.equals('active') &
+          reminders.remindAt.isSmallerOrEqualValue(ts) &
+          thoughts.deletedAt.isNull())
+      ..orderBy([OrderingTerm.asc(reminders.remindAt)]);
+    final rows = await query.get();
+    return rows
+        .map((r) =>
+            ReminderWithThought(r.readTable(reminders), r.readTable(thoughts)))
+        .toList();
+  }
+
+  /// 落库一条提醒（同一条随记的旧 active 提醒先清掉，避免叠加多个闹钟）
+  Future<int> upsertReminder({
+    required int thoughtId,
+    required int remindAt,
+    String repeatRule = 'once',
+  }) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await (delete(reminders)
+          ..where((r) =>
+              r.thoughtId.equals(thoughtId) & r.status.equals('active')))
+        .go();
+    final unit = switch (repeatRule) {
+      'daily' => 'day',
+      'weekly' => 'week',
+      'monthly' => 'month',
+      _ => null,
+    };
+    return into(reminders).insert(RemindersCompanion.insert(
+        thoughtId: thoughtId,
+        remindAt: remindAt,
+        repeatRule: Value(repeatRule),
+        repeatInterval: Value(unit == null ? null : 1),
+        repeatUnit: Value(unit),
+        createdAt: now));
+  }
+
+  Future<void> deleteReminder(int reminderId) async {
+    await (delete(reminders)..where((r) => r.id.equals(reminderId))).go();
+  }
+
+  /// 提醒已弹出：置为 fired 并记 lastFiredAt（保留行便于「我的」页展示历史）
+  Future<void> markReminderFired(int reminderId) async {
+    await (update(reminders)..where((r) => r.id.equals(reminderId))).write(
+        RemindersCompanion(
+            status: const Value('fired'),
+            lastFiredAt:
+                Value(DateTime.now().millisecondsSinceEpoch)));
+  }
+
+  /// 非重复提醒弹出后关闭；重复提醒由原生侧自己续期，这里只记 lastFiredAt
+  Future<void> markReminderFiredKeepActive(int reminderId) async {
+    await (update(reminders)..where((r) => r.id.equals(reminderId))).write(
+        RemindersCompanion(
+            lastFiredAt: Value(DateTime.now().millisecondsSinceEpoch)));
+  }
+
+  /// 启动对账用：一次性取所有 active 提醒的完整信息（含正文首页行做通知标题）
+  Future<List<ReminderWithThought>> snapshotActiveReminders() async {
+    final query = select(reminders).join([
+      innerJoin(thoughts, thoughts.id.equalsExp(reminders.thoughtId)),
+    ])
+      ..where(reminders.status.equals('active') & thoughts.deletedAt.isNull())
+      ..orderBy([OrderingTerm.asc(reminders.remindAt)]);
+    final rows = await query.get();
+    return rows
+        .map((r) =>
+            ReminderWithThought(r.readTable(reminders), r.readTable(thoughts)))
+        .toList();
+  }
+
+  /// 深链/通知点击后按 id 取随记
+  Future<Thought?> getThought(int thoughtId) {
+    return (select(thoughts)..where((t) => t.id.equals(thoughtId)))
+        .getSingleOrNull();
+  }
+
   // ═══════════════ 设置 KV ═══════════════
 
   /// 清空回收站：物理删除已软删随记
@@ -519,4 +627,23 @@ class TagWithCount {
   final Tag tag;
   final int count;
   TagWithCount(this.tag, this.count);
+}
+
+/// 提醒 + 它指向的随记（通知标题要显示随记内容，所以总是一起取）
+class ReminderWithThought {
+  final Reminder reminder;
+  final Thought thought;
+  ReminderWithThought(this.reminder, this.thought);
+
+  /// 通知标题：随记首行，超长截断（标题在通知栏只有一行可见宽度）
+  String get headline {
+    final first = thought.title.trim().isEmpty
+        ? thought.content.trim()
+        : thought.title.trim();
+    final line = first.split('\n').first.trim();
+    if (line.isEmpty) return '随想随记';
+    return line.length > 40 ? '${line.substring(0, 40)}…' : line;
+  }
+
+  bool get isRepeating => reminder.repeatRule != 'once';
 }

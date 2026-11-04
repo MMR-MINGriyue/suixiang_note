@@ -1,6 +1,7 @@
 package com.suixiang.suixiang_note
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
@@ -47,6 +48,47 @@ class MainActivity : FlutterActivity() {
                         QuickEntryNotification.ensure(this)
                     } else {
                         QuickEntryNotification.remove(this)
+                    }
+                    result.success(true)
+                }
+                else -> result.notImplemented()
+            }
+        }
+
+        // 提醒排程通道（v1.6）：Dart 侧算好时间点，原生只负责排/撤/续期
+        val reminderCh = MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "suixiang/reminder")
+        reminderCh.setMethodCallHandler { call, result ->
+            when (call.method) {
+                "schedule" -> {
+                    val id = call.argument<Int>("id") ?: -1
+                    val thoughtId = call.argument<Int>("thoughtId") ?: -1
+                    val fireAt = (call.argument<Number>("fireAt"))?.toLong() ?: 0L
+                    val repeatRule = call.argument<String>("repeatRule") ?: "once"
+                    val title = call.argument<String>("title") ?: "随想随记"
+                    val body = call.argument<String>("body") ?: ""
+                    if (id < 0 || fireAt <= 0L) {
+                        result.success(false)
+                    } else {
+                        ReminderScheduler.schedule(
+                            this, id, thoughtId, fireAt, repeatRule, title, body)
+                        result.success(true)
+                    }
+                }
+                "cancel" -> {
+                    val id = call.argument<Int>("id") ?: -1
+                    if (id >= 0) ReminderScheduler.cancel(this, id)
+                    result.success(true)
+                }
+                "canScheduleExact" -> result.success(ReminderScheduler.canScheduleExact(this))
+                "openExactAlarmSettings" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        try {
+                            startActivity(Intent(
+                                android.provider.Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM,
+                                android.net.Uri.parse("package:$packageName")))
+                        } catch (e: Exception) {
+                            // 部分 ROM 没有这个设置页，静默失败即可
+                        }
                     }
                     result.success(true)
                 }
