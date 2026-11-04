@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import '../data/app_database.dart';
 import '../main.dart' show archivedRequestTicker;
 import '../theme/tokens.dart';
+import 'daily_review_page.dart';
 import 'quick_capture_sheet.dart';
 import 'detail_page.dart';
 import 'trash_page.dart';
@@ -111,6 +112,9 @@ class _HomePageState extends State<HomePage> {
               },
             )
           else ...[
+            // 每日回顾入口（v1.7）：当天还没回顾时带一个小圆点，
+            // 但不做强红点——回顾是「邀请」不是「待办」，逼着点会立刻被无视
+            _ReviewEntry(db: db),
             // 回收站入口（软删数据不再只有「清空」一条路）
             IconButton(
               icon: const Icon(Icons.delete_outline),
@@ -307,6 +311,52 @@ bool _listEquals(List<int> a, List<int> b) {
     if (a[i] != b[i]) return false;
   }
   return true;
+}
+
+/// 每日回顾入口（v1.7）：今天没回顾过时在图标右上角点一个小圆点。
+/// 用 FutureBuilder 读一次 reviewedToday 就够——它只在页面重建时变，
+/// 不需要为「是否已回顾」挂一条流（那是每个 AppBar 重建都查一次库）。
+class _ReviewEntry extends StatelessWidget {
+  final AppDatabase db;
+  const _ReviewEntry({required this.db});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<bool>(
+      future: db.reviewedToday(),
+      builder: (context, snap) {
+        final pending = snap.data == false;
+        return Stack(
+          alignment: Alignment.center,
+          children: [
+            IconButton(
+              icon: const Icon(Icons.auto_awesome_outlined),
+              tooltip: '每日回顾',
+              onPressed: () => Navigator.push(
+                context,
+                MaterialPageRoute(builder: (_) => DailyReviewPage(db: db)),
+              ),
+            ),
+            if (pending)
+              Positioned(
+                right: 8,
+                top: 8,
+                child: IgnorePointer(
+                  child: Container(
+                    width: 7,
+                    height: 7,
+                    decoration: const BoxDecoration(
+                      color: T.stageDone,
+                      shape: BoxShape.circle,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        );
+      },
+    );
+  }
 }
 
 /// 状态过滤 chip：比 ChoiceChip 更紧凑（36 高），带可选色点表示三态颜色。

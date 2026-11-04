@@ -1,3 +1,5 @@
+import 'dart:math';
+
 import 'package:drift/drift.dart';
 import 'package:drift_flutter/drift_flutter.dart';
 import 'package:uuid/uuid.dart';
@@ -597,6 +599,74 @@ class AppDatabase extends _$AppDatabase {
   Future<Thought?> getThought(int thoughtId) {
     return (select(thoughts)..where((t) => t.id.equals(thoughtId)))
         .getSingleOrNull();
+  }
+
+  // ═══════════════ 每日回顾（v1.7，竞品分析短板③：flomo 的粘性核心） ═══════════════
+
+  /// 挑今天的回顾候选。
+  ///
+  /// 三个设计决策，都不是随意的：
+  /// 1. **不纯随机**。几十条的规模下纯随机必然连续几天抽到同几条，而回顾的价值
+  ///    恰恰在于把沉底的东西翻出来。所以先按 `updatedAt` 升序取一个 count×5 的
+  ///    池子 —— 池子本身已经偏向「最久没碰过的」。
+  /// 2. **用日期做随机种子**。同一天多次打开必须看到同一批，否则「回顾」会退化成
+  ///    「刷新抽奖」，用户会一直点换一批直到抽到有意思的，反而不回顾了。
+  /// 3. **排除今天创建的**。早上刚记的东西还在眼前，不需要回顾；而且它会让
+  ///    「N 天前」的时间标注失去意义。
+  Future<List<Thought>> pickDailyReview({
+    int count = 3,
+    DateTime? day,
+    int rotation = 0,
+  }) async {
+    final now = day ?? DateTime.now();
+    final dayStart =
+        DateTime(now.year, now.month, now.day).millisecondsSinceEpoch;
+
+    final pool = await (select(thoughts)
+          ..where((t) =>
+              t.deletedAt.isNull() &
+              t.isArchived.equals(false) &
+              t.createdAt.isSmallerThanValue(dayStart))
+          ..orderBy([(t) => OrderingTerm.asc(t.updatedAt)])
+          ..limit(count * 5))
+        .get();
+
+    // 池子本来就不够一屏：按原顺序给，不走打乱（否则「换一批」看着换过其实没变）
+    if (pool.length <= count) return pool;
+
+    // 日期 × 轮次 → 稳定种子；rotation 每点一次「换一批」自增
+    final seed =
+        now.year * 10000 + now.month * 100 + now.day + rotation * 7919;
+    final shuffled = List<Thought>.of(pool)..shuffle(Random(seed));
+    return shuffled.take(count).toList();
+  }
+
+  /// 今天是否已经回顾过（读 settings 的 last_review_at 与此前日期比对）
+  Future<bool> reviewedToday({DateTime? now}) async {
+    final raw = await getSetting('last_review_at');
+    final ts = int.tryParse(raw ?? '');
+    if (ts == null) return false;
+    final t = now ?? DateTime.now();
+    final last = DateTime.fromMillisecondsSinceEpoch(ts);
+    return last.year == t.year && last.month == t.month && last.day == t.day;
+  }
+
+  Future<void> markReviewedNow() =>
+      setSetting('last_review_at', '${DateTime.now().millisecondsSinceEpoch}');
+
+  /// 回顾页顶部的一行事实：库里有多少条、多少条已完成
+  Future<({int total, int done, int oldestDays})> reviewStats() async {
+    final all = await (select(thoughts)
+          ..where((t) => t.deletedAt.isNull() & t.isArchived.equals(false)))
+        .get();
+    final done = all.where((t) => t.stageId == 3).length;
+    final oldest = all.isEmpty
+        ? 0
+        : DateTime.now()
+            .difference(DateTime.fromMillisecondsSinceEpoch(
+                all.map((t) => t.createdAt).reduce((a, b) => a < b ? a : b)))
+            .inDays;
+    return (total: all.length, done: done, oldestDays: oldest);
   }
 
   // ═══════════════ 设置 KV ═══════════════
