@@ -1,16 +1,20 @@
-"""随想随记 · 应用图标生成器
+"""随想随记 · 应用图标生成器 v2
 
-以 appicon/candidate-b-drop-ring-1024.svg（落定之珠）为母版，用 Pillow 几何重绘：
+以 appicon/candidate-b-drop-ring-1024.svg（落定之珠）为母版，用 Pillow 几何重绘。
+
+v2 视觉升级（相对 v1 的纯色平涂）：
+1. 水滴轮廓改为「尖端 + 两条切线 + 整段底弧」的单闭合多边形 —— 消除 v1
+   「多边形与底圆两次叠加」在 48px 下留下的接缝毛边。
+2. 水滴填充改为垂直渐变（上浅下深），让珠子有一点体积感；
+   平涂绿在纸底上太「贴纸」，渐变后更接近水滴材质。
+3. 纸底版本加落影（模糊椭圆）+ 发丝内描边 —— 48px 图标在浅色桌面上
+   没有投影会显得漂浮，内描边让纸面与桌面有一道分界。
+4. 高光改为主层合成前高斯模糊，边缘不再生硬。
+
+不变的约定：
 - 母版坐标 1024×1024，圆环 r=298 / 线宽 56 / 75% 进度弧，水滴尖端 y=330、底圆 r=132
-- 水滴轮廓 = 尖端 + 两条切线（切点由 acos(r/d) 解析求出）+ 底圆，两者求并
 - 4x 超采样 + LANCZOS 下采样，48px 下仍保持干净
-
-输出：
-- Android：mipmap-{m,h,xh,xxh,xxxh}dpi 的 ic_launcher / ic_launcher_round /
-  ic_launcher_foreground（自适应前景，中心 66/108 安全区）/ ic_launcher_monochrome
-  + mipmap-anydpi-v26 与 v33 的 adaptive-icon XML + values/colors.xml
-- Windows：windows/runner/resources/app_icon.ico（16→256 七档）
-- 预览：tool/out/icon_preview.png
+- 输出文件名与 v1 完全一致（Android 5 档 mipmap + adaptive XML + Windows ICO + 预览）
 
 用法：python tool/gen_icons.py
 本机无 cairosvg，故不走 SVG 栅格化。
@@ -21,16 +25,19 @@ from __future__ import annotations
 import math
 import os
 
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageChops, ImageDraw, ImageFilter, ImageFont
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # ---- 设计 Token（与 lib/theme/tokens.dart 对齐）--------------------------------
 PAPER = (250, 247, 242, 255)      # #FAF7F2
 BRAND = (76, 111, 255, 255)       # #4C6FFF 靛蓝
-DROP = (47, 191, 143, 255)        # #2FBF8F 珠绿
+DROP_TOP = (98, 216, 178, 255)    # 渐变顶端（珠绿提亮）
+DROP_BOT = (33, 163, 120, 255)    # 渐变底端（珠绿加深）
 TRACK = (43, 47, 58, 20)          # #2B2F3A @ 8%
-HILITE = (255, 255, 255, 110)     # 白 @ 43%
+HILITE = (255, 255, 255, 150)     # 白 @ 59%（模糊前；模糊后实际更淡）
+SHADOW = (43, 47, 58, 26)         # 落影 #2B2F3A @ 10%
+EDGE = (43, 47, 58, 16)           # 发丝内描边 @ 6%
 
 # ---- 母版几何 ----------------------------------------------------------------
 BASE = 1024.0
@@ -46,31 +53,63 @@ HILITE_R = (20.0, 34.0)
 HILITE_ANGLE = -15.0
 
 SS = 4                      # 超采样
+ARC_SEGMENTS = 64           # 底弧采样密度
 
 
-def teardrop(k: float, n: float) -> tuple[list[tuple[float, float]], tuple[float, float, float]]:
-    """返回 (多边形顶点, (cx, cy, r))。
-
-    k = 母版→画布缩放系数；n = 画布边长；画布中心为 n/2，
-    母版点 (x,y) 映射为 n/2 + (x-512)*k。
-    """
+def _scale(k: float, n: float):
+    """母版坐标 → 画布坐标的映射函数（画布中心恒为 n/2）。"""
     c = n / 2.0
+    return lambda x, y: (c + (x - C) * k, c + (y - C) * k)
 
-    def s(x: float, y: float) -> tuple[float, float]:
-        return (c + (x - C) * k, c + (y - C) * k)
 
-    tip = s(C, TIP_Y)
+def teardrop_outline(k: float, n: float) -> list[tuple[float, float]]:
+    """水滴整条轮廓：尖端 → 左切点 → 底弧（长弧，经过正下方）→ 右切点 → 回尖端。
+
+    切点由 acos(DROP_R / d) 解析求出（与 v1 相同），区别是底弧整段采样成
+    多边形边而不是再叠一个圆 —— 48px 下不再有「多边形边穿透圆边」的毛刺。
+    """
+    s = _scale(k, n)
     d = DROP_CY - TIP_Y                         # 251
-    theta = math.acos(DROP_R / d)               # 切点张角
-    pts = [tip]
+    theta = math.acos(DROP_R / d)               # 切点张角 ≈ 58.3°
+
+    tangents = []  # 母版坐标
     for sign in (-1.0, 1.0):
-        # C→P 单位向量 (0,-1) 旋转 sign*theta
-        ux, uy = 0.0, -1.0
+        ux, uy = 0.0, -1.0                      # 指向尖端的单位向量（屏幕坐标 y 向下）
         ct, st = math.cos(sign * theta), math.sin(sign * theta)
         rx, ry = ux * ct - uy * st, ux * st + uy * ct
-        pts.append(s(C + DROP_R * rx, DROP_CY + DROP_R * ry))
-    cx2, cy2 = s(C, DROP_CY)
-    return pts, (cx2, cy2, DROP_R * k)
+        tangents.append((C + DROP_R * rx, DROP_CY + DROP_R * ry))
+    left, right = tangents  # left 在上偏左，right 在上偏右
+
+    la = math.atan2(left[1] - DROP_CY, left[0] - C)    # ≈ -148.3°
+    ra = math.atan2(right[1] - DROP_CY, right[0] - C)  # ≈ -31.7°
+    # 长弧 = 从左切点经左侧→正下方→右侧到右切点（屏幕坐标里正下方是 +90°）
+    sweep = (ra - la) % (2 * math.pi) - 2 * math.pi   # 负方向转 ≈ -243.4°，必经 +90°
+
+    pts = [s(C, TIP_Y)]
+    for i in range(ARC_SEGMENTS + 1):
+        a = la + sweep * i / ARC_SEGMENTS
+        pts.append(s(C + DROP_R * math.cos(a), DROP_CY + DROP_R * math.sin(a)))
+    return [(x, y) for x, y in pts]
+
+
+def _drop_mask(pts, n: int) -> Image.Image:
+    """水滴形状的 alpha 蒙版（渐变与 mono 都从它出发）。"""
+    m = Image.new("L", (n, n), 0)
+    ImageDraw.Draw(m).polygon(pts, fill=255)
+    return m
+
+
+def _vertical_gradient(n: int, box, top, bot) -> Image.Image:
+    """在 box 范围内铺一张垂直渐变 RGBA 层。"""
+    x0, y0, x1, y1 = box
+    layer = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(layer)
+    h = max(1, y1 - y0)
+    for y in range(y0, y1 + 1):
+        t = (y - y0) / h
+        col = tuple(int(a + (b - a) * t) for a, b in zip(top[:3], bot[:3])) + (255,)
+        ld.line((x0, y, x1, y), fill=col)
+    return layer
 
 
 def render(
@@ -108,12 +147,33 @@ def render(
             ex, ey = c + rr * math.cos(a), c + rr * math.sin(a)
             d.ellipse((ex - rw / 2, ey - rw / 2, ex + rw / 2, ey + rw / 2), fill=BRAND)
 
-    pts, (dcx, dcy, dr) = teardrop(k, n)
-    fill = (255, 255, 255, 255) if mono else DROP
-    d.polygon(pts, fill=fill)
-    d.ellipse((dcx - dr, dcy - dr, dcx + dr, dcy + dr), fill=fill)
+    pts = teardrop_outline(k, n)
+    mask = _drop_mask(pts, n)
+    bbox = mask.getbbox()
 
-    if not mono:
+    if mono:
+        white = Image.new("RGBA", (n, n), (255, 255, 255, 0))
+        white.putalpha(mask)
+        img = Image.alpha_composite(img, white)
+    else:
+        # 落影：珠子底下一点点的模糊椭圆，只在有纸底时画（透明前景不画，
+        # 否则系统裁进任何形状遮罩里都会带一圈灰晕）
+        if bg is not None:
+            sx = (bbox[0] + bbox[2]) / 2
+            sh = Image.new("RGBA", (n, n), (0, 0, 0, 0))
+            sd = ImageDraw.Draw(sh)
+            sd.ellipse((sx - DROP_R * k * 0.95, bbox[3] - DROP_R * k * 0.30,
+                        sx + DROP_R * k * 0.95, bbox[3] + DROP_R * k * 0.42),
+                       fill=SHADOW)
+            sh = sh.filter(ImageFilter.GaussianBlur(radius=DROP_R * k * 0.22))
+            img = Image.alpha_composite(img, sh)
+
+        # 渐变珠身
+        grad = _vertical_gradient(n, bbox, DROP_TOP, DROP_BOT)
+        grad.putalpha(mask)
+        img = Image.alpha_composite(img, grad)
+
+        # 高光：模糊后合成，边缘柔化
         hx = c + (HILITE_C[0] - C) * k
         hy = c + (HILITE_C[1] - C) * k
         rx_, ry_ = HILITE_R[0] * k, HILITE_R[1] * k
@@ -121,7 +181,18 @@ def render(
         od = ImageDraw.Draw(ov)
         od.ellipse((hx - rx_, hy - ry_, hx + rx_, hy + ry_), fill=HILITE)
         ov = ov.rotate(HILITE_ANGLE, center=(hx, hy), resample=Image.BICUBIC)
+        ov = ov.filter(ImageFilter.GaussianBlur(radius=max(1.0, n * 0.004)))
         img = Image.alpha_composite(img, ov)
+
+        # 发丝内描边：只在圆角/圆底上画，把纸面从桌面上「托」出来
+        if bg is not None:
+            ew = max(1, int(round(n * 0.004)))
+            if circle:
+                d.ellipse((ew // 2, ew // 2, n - 1 - ew // 2, n - 1 - ew // 2),
+                          outline=EDGE, width=ew)
+            elif rounded > 0:
+                d.rounded_rectangle((ew // 2, ew // 2, n - 1 - ew // 2, n - 1 - ew // 2),
+                                    radius=int(n * rounded), outline=EDGE, width=ew)
 
     return img.resize((size, size), Image.LANCZOS)
 
