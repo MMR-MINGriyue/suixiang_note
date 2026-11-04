@@ -296,18 +296,27 @@ class _HomePageState extends State<HomePage> {
           ? const _EmptyState()
           : _SearchEmpty(query: _query.isEmpty ? '该标签' : _query);
     }
-    return ListView.separated(
-      padding: const EdgeInsets.fromLTRB(T.pagePad, 8, T.pagePad, 96),
-      itemCount: list.length,
-      separatorBuilder: (_, _) => const SizedBox(height: 10),
-      itemBuilder: (context, i) => _NoteCard(
-          db: db,
-          thought: list[i],
-          stagesStream: db.watchStages(),
-          highlight: _query,
-          multiSelect: _multiSelect,
-          selected: _selected.contains(list[i].id),
-          onToggleSelect: () => _toggleSelect(list[i].id)),
+    return StreamBuilder<List<Stage>>(
+      stream: db.watchStages(),
+      builder: (context, stageSnap) {
+        // 阶段列表提到列表级订阅一次：原来每张卡里各自 watchStages()，
+        // 50 条就是 50 条订阅（加上水滴徽章与卡住提示各一条，共上百条）。
+        // stages 只有三行且几乎不变，订阅一次、按值下发最省。
+        final stages = stageSnap.data ?? const <Stage>[];
+        return ListView.separated(
+          padding: const EdgeInsets.fromLTRB(T.pagePad, 8, T.pagePad, 96),
+          itemCount: list.length,
+          separatorBuilder: (_, _) => const SizedBox(height: 10),
+          itemBuilder: (context, i) => _NoteCard(
+              db: db,
+              thought: list[i],
+              stages: stages,
+              highlight: _query,
+              multiSelect: _multiSelect,
+              selected: _selected.contains(list[i].id),
+              onToggleSelect: () => _toggleSelect(list[i].id)),
+        );
+      },
     );
   }
 }
@@ -478,7 +487,10 @@ class _SearchEmpty extends StatelessWidget {  final String query;
 class _NoteCard extends StatelessWidget {
   final AppDatabase db;
   final Thought thought;
-  final Stream<List<Stage>> stagesStream;
+
+  /// 阶段全表按值传入（由列表级 StreamBuilder 统一订阅一次）。
+  /// 原来这里收的是 Stream，每张卡自己订阅，50 条列表就是 50+ 条订阅。
+  final List<Stage> stages;
   final bool multiSelect;
   final bool selected;
   final VoidCallback onToggleSelect;
@@ -489,7 +501,7 @@ class _NoteCard extends StatelessWidget {
   const _NoteCard({
     required this.db,
     required this.thought,
-    required this.stagesStream,
+    required this.stages,
     this.highlight = '',
     this.multiSelect = false,
     this.selected = false,
@@ -668,7 +680,7 @@ class _NoteCard extends StatelessWidget {
                     // 「停在这里 N 天」：只对推进中且卡满 3 天的卡出现。
                     // 这是推进这条主线上唯一带压力的信息——灵感躺着正常、
                     // 完成躺着应该，只有推进中停住才值得被看见。
-                    _StuckBadge(thought: thought, stagesStream: stagesStream),
+                    _StuckBadge(thought: thought, stages: stages),
                     const SizedBox(height: 8),
                     // 层级三：标签 chips + 左下水滴徽章
                     Row(
@@ -709,33 +721,28 @@ class _NoteCard extends StatelessWidget {
                           ),
                         ),
                         // 水滴三态徽章移到左下（点击推进，44px 触控区）
-                        StreamBuilder<List<Stage>>(
-                          stream: stagesStream,
-                          builder: (context, sSnap) {
-                            final stages = sSnap.data ?? const <Stage>[];
-                            final stage = stageOf(stages, thought);
-                            return InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () => _advance(context, stages, stage),
-                              onLongPress: () =>
-                                  _pickStage(context, stages, stage),
-                              child: SizedBox(
-                                width: 44,
-                                height: 44,
-                                child: Center(
-                                  child: Tooltip(
-                                    message: '${stage.name} · 点击推进，长按选',
-                                    child: DropBadge(
-                                      kind: stage.kind,
-                                      color: Color(int.parse(stage.color
-                                          .replaceFirst('#', '0xFF'))),
-                                    ),
+                        Builder(builder: (context) {
+                          final stage = stageOf(stages, thought);
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () => _advance(context, stage),
+                            onLongPress: () => _pickStage(context, stage),
+                            child: SizedBox(
+                              width: 44,
+                              height: 44,
+                              child: Center(
+                                child: Tooltip(
+                                  message: '${stage.name} · 点击推进，长按选',
+                                  child: DropBadge(
+                                    kind: stage.kind,
+                                    color: Color(int.parse(
+                                        stage.color.replaceFirst('#', '0xFF'))),
                                   ),
                                 ),
                               ),
-                            );
-                          },
-                        ),
+                            ),
+                          );
+                        }),
                       ],
                     ),
                   ],
@@ -747,8 +754,7 @@ class _NoteCard extends StatelessWidget {
 
   /// 单击推进：落定后必须给出反馈，否则用户点完不知道有没有生效。
   /// 反馈三件套——触觉（手感）+ SnackBar 带新状态名（确认）+ 撤回（误触兜底）。
-  Future<void> _advance(
-      BuildContext context, List<Stage> stages, Stage current) async {
+  Future<void> _advance(BuildContext context, Stage current) async {
     final next = nextStageOf(stages, current.id);
     if (next == null) return;
     await db.advanceStage(thought.id);
@@ -764,8 +770,7 @@ class _NoteCard extends StatelessWidget {
   }
 
   /// 长按水滴：三态直接选。比「点两圈退一步」快，也比拖动排序好理解。
-  Future<void> _pickStage(
-      BuildContext context, List<Stage> stages, Stage current) async {
+  Future<void> _pickStage(BuildContext context, Stage current) async {
     if (stages.isEmpty) return;
     final picked = await showModalBottomSheet<Stage>(
       context: context,
@@ -817,64 +822,49 @@ class _NoteCard extends StatelessWidget {
   }
 
   void _showActions(BuildContext context) {
+    final stage = stageOf(stages, thought);
     showModalBottomSheet(
       context: context,
       builder: (_) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           // 推进：长按菜单里也留一个入口。水滴角标只有 44px，
           // 手小的人容易点不准；菜单里这一行带状态名，认得出当前位置。
-          StreamBuilder<List<Stage>>(
-            stream: stagesStream,
-            builder: (context, sSnap) {
-              final stages = sSnap.data ?? const <Stage>[];
-              final stage = stageOf(stages, thought);
-              return ListTile(
-                leading: DropBadge(
-                    kind: stage.kind,
-                    color: Color(int.parse(stage.color.replaceFirst('#', '0xFF'))),
-                    size: 24),
-                title: Text('状态：${stage.name}'),
-                subtitle: const Text('点开可选推进 / 退回',
-                    style: TextStyle(fontSize: 12, color: T.inkTertiary)),
-                onTap: () {
-                  Navigator.pop(context);
-                  _pickStage(context, stages, stage);
-                },
-              );
+          ListTile(
+            leading: DropBadge(
+                kind: stage.kind,
+                color: Color(int.parse(stage.color.replaceFirst('#', '0xFF'))),
+                size: 24),
+            title: Text('状态：${stage.name}'),
+            subtitle: const Text('点开可选推进 / 退回',
+                style: TextStyle(fontSize: 12, color: T.inkTertiary)),
+            onTap: () {
+              Navigator.pop(context);
+              _pickStage(context, stage);
             },
           ),
           // 一步退回：单向循环要绕两圈才能退一格，这里给一个直达反向的入口。
           // 放在菜单里而不是角标上——它比「推进」低频，不该占主触控区。
-          StreamBuilder<List<Stage>>(
-            stream: stagesStream,
-            builder: (context, sSnap) {
-              final stages = sSnap.data ?? const <Stage>[];
-              final stage = stageOf(stages, thought);
-              final prev = prevStageOf(stages, stage.id);
-              if (prev == null || prev.id == stage.id) {
-                return const SizedBox.shrink();
-              }
-              return ListTile(
-                leading: const Icon(Icons.undo, size: 22, color: T.inkSecondary),
-                title: Text('退回「${prev.name}」'),
-                subtitle: const Text('打错了或者还没到时候',
-                    style: TextStyle(fontSize: 12, color: T.inkTertiary)),
-                onTap: () async {
-                  Navigator.pop(context);
-                  await db.previousStage(thought.id);
-                  if (!context.mounted) return;
-                  HapticFeedback.selectionClick();
-                  ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                    content: Text('已退回「${prev.name}」'),
-                    duration: const Duration(seconds: 3),
-                    action: SnackBarAction(
-                        label: '撤回',
-                        onPressed: () => db.setStage(thought.id, stage.id)),
-                  ));
-                },
-              );
-            },
-          ),
+          if (prevStageOf(stages, stage.id) case final prev?
+              when prev.id != stage.id)
+            ListTile(
+              leading: const Icon(Icons.undo, size: 22, color: T.inkSecondary),
+              title: Text('退回「${prev.name}」'),
+              subtitle: const Text('打错了或者还没到时候',
+                  style: TextStyle(fontSize: 12, color: T.inkTertiary)),
+              onTap: () async {
+                Navigator.pop(context);
+                await db.previousStage(thought.id);
+                if (!context.mounted) return;
+                HapticFeedback.selectionClick();
+                ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                  content: Text('已退回「${prev.name}」'),
+                  duration: const Duration(seconds: 3),
+                  action: SnackBarAction(
+                      label: '撤回',
+                      onPressed: () => db.setStage(thought.id, stage.id)),
+                ));
+              },
+            ),
           ListTile(
             leading: Icon(thought.isPinned ? Icons.push_pin_outlined : Icons.push_pin),
             title: Text(thought.isPinned ? '取消置顶' : '置顶'),
@@ -920,27 +910,21 @@ class _NoteCard extends StatelessWidget {
 /// 实际上这件事一直没往下走。这两个信息必须分开看。
 class _StuckBadge extends StatelessWidget {
   final Thought thought;
-  final Stream<List<Stage>> stagesStream;
-  const _StuckBadge({required this.thought, required this.stagesStream});
+  final List<Stage> stages;
+  const _StuckBadge({required this.thought, required this.stages});
 
   @override
   Widget build(BuildContext context) {
-    return StreamBuilder<List<Stage>>(
-      stream: stagesStream,
-      builder: (context, snap) {
-        final stage = stageOf(snap.data ?? const <Stage>[], thought);
-        final label = stagnationLabel(thought.stageChangedAt, stage.kind);
-        if (label.isEmpty) return const SizedBox.shrink();
-        return Padding(
-          padding: const EdgeInsets.only(top: 6),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.hourglass_bottom, size: 12, color: T.warning),
-            const SizedBox(width: 4),
-            Text(label,
-                style: const TextStyle(fontSize: 11, color: T.warning)),
-          ]),
-        );
-      },
+    final stage = stageOf(stages, thought);
+    final label = stagnationLabel(thought.stageChangedAt, stage.kind);
+    if (label.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        const Icon(Icons.hourglass_bottom, size: 12, color: T.warning),
+        const SizedBox(width: 4),
+        Text(label, style: const TextStyle(fontSize: 11, color: T.warning)),
+      ]),
     );
   }
 }
