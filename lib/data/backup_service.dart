@@ -52,22 +52,7 @@ class BackupService {
       seq++;
     }
 
-    final snapshot = {
-      'app': 'suixiang_note',
-      'formatVersion': 1,
-      'schemaVersion': db.schemaVersion,
-      'exportedAt': now.toIso8601String(),
-      'folders': (await db.select(db.folders).get()).map((r) => r.toJson()).toList(),
-      'stages': (await db.select(db.stages).get()).map((r) => r.toJson()).toList(),
-      'thoughts': (await db.select(db.thoughts).get()).map((r) => r.toJson()).toList(),
-      'tags': (await db.select(db.tags).get()).map((r) => r.toJson()).toList(),
-      'thoughtTags': (await db.select(db.thoughtTags).get()).map((r) => r.toJson()).toList(),
-      'reminders': (await db.select(db.reminders).get()).map((r) => r.toJson()).toList(),
-      'attachments': (await db.select(db.attachments).get()).map((r) => r.toJson()).toList(),
-      'settings': (await db.select(db.settings).get()).map((r) => r.toJson()).toList(),
-      // v4：随记之间的关联边。备份漏掉它 = 恢复后图谱静默断裂。
-      'thoughtLinks': (await db.select(db.thoughtLinks).get()).map((r) => r.toJson()).toList(),
-    };
+    final snapshot = await _readSnapshot(now);
 
     await file.writeAsString(const JsonEncoder.withIndent('  ').convert(snapshot));
 
@@ -81,6 +66,42 @@ class BackupService {
 
     await db.setSetting(_metaKeyLastBackup, now.millisecondsSinceEpoch.toString());
     return file.path;
+  }
+
+  /// 架构复审 P1-1：快照读取整体包进事务。
+  ///
+  /// 九次 select 原来是九次独立的 await，500ms 防抖的 saveDraft / softDelete /
+  /// setSetting 可以插在中间——写进 JSON 的各表来自不同时刻，恢复出来是
+  /// 一份「从未存在过的状态」。事务内读取保证快照是单一时刻的完整切片。
+  Future<Map<String, dynamic>> _readSnapshot(DateTime now) {
+    return db.transaction(() async => {
+          'app': 'suixiang_note',
+          'formatVersion': 1,
+          'schemaVersion': db.schemaVersion,
+          'exportedAt': now.toIso8601String(),
+          'folders':
+              (await db.select(db.folders).get()).map((r) => r.toJson()).toList(),
+          'stages':
+              (await db.select(db.stages).get()).map((r) => r.toJson()).toList(),
+          'thoughts':
+              (await db.select(db.thoughts).get()).map((r) => r.toJson()).toList(),
+          'tags':
+              (await db.select(db.tags).get()).map((r) => r.toJson()).toList(),
+          'thoughtTags': (await db.select(db.thoughtTags).get())
+              .map((r) => r.toJson())
+              .toList(),
+          'reminders':
+              (await db.select(db.reminders).get()).map((r) => r.toJson()).toList(),
+          'attachments': (await db.select(db.attachments).get())
+              .map((r) => r.toJson())
+              .toList(),
+          'settings':
+              (await db.select(db.settings).get()).map((r) => r.toJson()).toList(),
+          // v4：随记之间的关联边。备份漏掉它 = 恢复后图谱静默断裂。
+          'thoughtLinks': (await db.select(db.thoughtLinks).get())
+              .map((r) => r.toJson())
+              .toList(),
+        });
   }
 
   /// 列出全部备份（新→旧）

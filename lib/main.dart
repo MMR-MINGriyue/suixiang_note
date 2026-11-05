@@ -33,10 +33,7 @@ Future<void> main() async {
 
 /// 全局单例与主题状态在 core/app_signals.dart（架构评审 C1：
 /// folders_page / profile_page / home_page 不再反向 import main.dart）。
-
-/// 外部入口二次唤起（应用已在后台时点小部件/通知栏）广播：
-/// AppShell 订阅它，收到就弹速记，不重建整个 App。
-final launchIntentNotifier = ValueNotifier<LaunchIntent>(LaunchIntent.none);
+/// （架构复审观察-1：原 launchIntentNotifier 全库无订阅方，已删。）
 
 /// 「跳到归档视图」请求信号：长按图标选「归档」快捷方式时，
 /// 原生侧推一个 tick，首页监听后把过滤切到归档（不用重建首页、不用路由栈）。
@@ -75,29 +72,26 @@ class AppShell extends StatefulWidget {
 class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
   int _index = 0;
   static const _launchChannel = MethodChannel('suixiang/launch');
+  // 架构复审 P1-2：首帧 postFrameCallback 与 resumed 几乎同时触发对账，
+  // 不加互斥会同批 due 被读两次、弹两条一样的 SnackBar。
+  bool _reconciling = false;
+  // 全量重排只在冷启动做一次（AlarmManager 排程在进程外，重装/清数据会丢；
+  // 提醒的写变更都走单条 schedule/cancel，无需每次回前台重排全量）。
+  bool _didInitialReschedule = false;
+  // 架构复审观察-4：连点通知/深链会叠两个 DetailPage / 速记面板。
+  bool _navigating = false;
+  // 架构复审 P1-3：页面列表只建一次，切 Tab 不销毁首页的搜索/筛选/多选状态。
+  late final List<Widget> _pages;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    // 冷启动带着 capture：等首帧后再弹，否则 Navigator 还没有 Overlay
-    if (widget.initialLaunch.isCapture) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _handleCapture(widget.initialLaunch.text);
-      });
-    } else if (widget.initialLaunch.isArchived) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        setState(() => _index = 0);
-        archivedRequestTicker.value++;
-      });
-    } else if (widget.initialLaunch.thoughtId != null) {
-      // 从提醒通知点进来：suixiang://thought/<id> 直达该条随记
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _handleOpenThought(widget.initialLaunch.thoughtId!);
-      });
-    }
-    // 提醒应用内兜底：首帧后对账一次，防 Doze/后台限制把系统闹钟吞掉
-    WidgetsBinding.instance.addPostFrameCallback((_) => _reconcileReminders());
+    _pages = <Widget>[
+      HomePage(db: appDb), // Tab 0 随记
+      const FoldersPage(), // Tab 1 文件夹（M4 已落）
+      const ProfilePage(), // Tab 2 我的（M6 已落 v1.0 收敛版）
+    ];
     // 热启动（应用在后台时被唤起）：原生侧推 onIntent 过来
     _launchChannel.setMethodCallHandler((call) async {
       if (call.method == 'onIntent') {
@@ -119,6 +113,27 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       }
       return null;
     });
+    // 冷启动意图与提醒对账都等首帧（Navigator / Overlay 就绪后）
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _handleInitialLaunch();
+      _reconcileReminders();
+    });
+    // 架构复审 P1-4：告知原生「handler 已就绪」，原生侧此后才补推残留 pending
+    _launchChannel.invokeMethod('notifyReady').catchError((_) => false);
+  }
+
+  /// 冷启动意图分发（原 initState 里的三分支，收敛成一个方法）
+  void _handleInitialLaunch() {
+    final launch = widget.initialLaunch;
+    if (launch.isCapture) {
+      _handleCapture(launch.text);
+    } else if (launch.isArchived) {
+      setState(() => _index = 0);
+      archivedRequestTicker.value++;
+    } else if (launch.thoughtId != null) {
+      // 从提醒通知点进来：suixiang://thought/<id> 直达该条随记
+      _handleOpenThought(launch.thoughtId!);
+    }
   }
 
   @override
@@ -136,59 +151,76 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
     }
   }
 
-  /// 提醒对账：把已过期但未通知的提醒捞出来，用应用内弹层提示
+  /// 提醒对账：把已过期但未通知的提醒捞出来，用应用内弹层提示。
+  ///
+  /// 架构复审 P1-2：加 [_reconciling] 互斥（首帧与 resumed 并发只跑一个）；
+  /// 全量重排收敛为冷启动首帧一次（[_didInitialReschedule]）。
   Future<void> _reconcileReminders() async {
-    if (!mounted) return;
-    final due = await ReminderService.reconcile(appDb);
-    if (due.isEmpty || !mounted) return;
-    setState(() => _index = 0);
-    final first = due.first;
-    final messenger = ScaffoldMessenger.of(context);
-    messenger.showSnackBar(SnackBar(
-      content: Text(
-        due.length == 1
-            ? '提醒：${first.headline}'
-            : '有 ${due.length} 条提醒到点了（第一条：${first.headline}）',
-      ),
-      duration: const Duration(seconds: 6),
-      action: SnackBarAction(
-        label: '查看',
-        onPressed: () => _handleOpenThought(first.thought.id),
-      ),
-    ));
-    // 重新排一遍剩余的（重复提醒在原生侧已续期，这里补漏掉的一次性提醒不需要动作）
-    if (ReminderService.supported) {
-      await ReminderService.rescheduleAll(appDb);
+    if (!mounted || _reconciling) return;
+    _reconciling = true;
+    try {
+      if (!_didInitialReschedule) {
+        _didInitialReschedule = true;
+        if (ReminderService.supported) {
+          await ReminderService.rescheduleAll(appDb);
+        }
+      }
+      final due = await ReminderService.reconcile(appDb);
+      if (due.isEmpty || !mounted) return;
+      setState(() => _index = 0);
+      final first = due.first;
+      final messenger = ScaffoldMessenger.of(context);
+      messenger.showSnackBar(SnackBar(
+        content: Text(
+          due.length == 1
+              ? '提醒：${first.headline}'
+              : '有 ${due.length} 条提醒到点了（第一条：${first.headline}）',
+        ),
+        duration: const Duration(seconds: 6),
+        action: SnackBarAction(
+          label: '查看',
+          onPressed: () => _handleOpenThought(first.thought.id),
+        ),
+      ));
+    } finally {
+      _reconciling = false;
     }
   }
 
   Future<void> _handleOpenThought(int thoughtId) async {
-    if (!mounted) return;
+    if (!mounted || _navigating) return;
     final thought = await appDb.getThought(thoughtId);
-    if (thought == null || !mounted) return;
-    setState(() => _index = 0);
-    await Navigator.push(
-      context,
-      MaterialPageRoute(builder: (_) => DetailPage(db: appDb, thought: thought)),
-    );
+    if (thought == null || !mounted || _navigating) return;
+    _navigating = true;
+    try {
+      setState(() => _index = 0);
+      await Navigator.push(
+        context,
+        MaterialPageRoute(builder: (_) => DetailPage(db: appDb, thought: thought)),
+      );
+    } finally {
+      _navigating = false;
+    }
   }
 
   Future<void> _handleCapture(String? text) async {
-    if (!mounted) return;
-    // 从外部进来时先回到「随记」Tab，速记面板关掉后落在列表而不是设置页
-    setState(() => _index = 0);
-    await QuickCaptureSheet.open(context, appDb, initialText: text);
+    if (!mounted || _navigating) return;
+    _navigating = true;
+    try {
+      // 从外部进来时先回到「随记」Tab，速记面板关掉后落在列表而不是设置页
+      setState(() => _index = 0);
+      await QuickCaptureSheet.open(context, appDb, initialText: text);
+    } finally {
+      _navigating = false;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final pages = <Widget>[
-      HomePage(db: appDb), // Tab 0 随记
-      const FoldersPage(), // Tab 1 文件夹（M4 已落）
-      const ProfilePage(), // Tab 2 我的（M6 已落 v1.0 收敛版）
-    ];
     return Scaffold(
-      body: pages[_index.clamp(0, pages.length - 1)],
+      // 架构复审 P1-3：IndexedStack 保活三个 Tab——切走再切回来，
+      // 首页的搜索词 / 筛选 / 多选与滚动位置都在，不重建不重订
+      body: IndexedStack(index: _index.clamp(0, _pages.length - 1), children: _pages),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         destinations: const [

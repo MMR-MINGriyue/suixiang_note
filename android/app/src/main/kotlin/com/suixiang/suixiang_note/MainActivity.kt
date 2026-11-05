@@ -16,11 +16,13 @@ import io.flutter.plugin.common.MethodChannel
  */
 class MainActivity : FlutterActivity() {
 
-    private var initialIntentPayload: Map<String, Any?>? = null
     private var channel: MethodChannel? = null
     private var pendingUri: String? = null
     private var pendingText: String? = null
     private var pendingAction: String? = null
+    // 架构复审 P1-4：Dart 侧 handler 是否已注册。就绪之前 onNewIntent/onResume
+    // 不消费不推送——否则冷启动竞态下 onIntent 会先于 handler 到达而丢失。
+    private var dartReady = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // 必须在 super.onCreate 之前抓 intent：Flutter Engine 起来时 channel 才注册
@@ -35,10 +37,18 @@ class MainActivity : FlutterActivity() {
         ch.setMethodCallHandler { call, result ->
             when (call.method) {
                 "getInitialIntent" -> {
-                    // 优先返回已经攒下的（冷启动时捕获的），否则返回最近一次的
-                    val payload = initialIntentPayload
-                    initialIntentPayload = null
-                    result.success(payload ?: consumePending())
+                    // 冷启动：Dart main() 里 readInitial() 调一次，消费攒下的意图
+                    result.success(consumePending())
+                }
+                "notifyReady" -> {
+                    // 架构复审 P1-4：Dart handler 就绪。此后 onNewIntent/onResume
+                    // 才允许补推；就绪前攒下的 pending 在这里补推一次
+                    dartReady = true
+                    val leftover = consumePending()
+                    if (leftover != null) {
+                        ch.invokeMethod("onIntent", leftover)
+                    }
+                    result.success(true)
                 }
                 "setQuickEntry" -> {
                     // 通知栏常驻入口开关（Dart 侧设置页驱动）
@@ -99,19 +109,24 @@ class MainActivity : FlutterActivity() {
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
-        // 应用已在后台时被二次唤起：不重建 Activity，直接推给 Dart
+        // 应用已在后台时被二次唤起：不重建 Activity，攒下意图；
+        // handler 就绪才直接推，否则留 pending 等 notifyReady 补推
         captureIntent(intent)
-        consumePending()?.let { payload ->
-            channel?.invokeMethod("onIntent", payload)
+        if (dartReady) {
+            consumePending()?.let { payload ->
+                channel?.invokeMethod("onIntent", payload)
+            }
         }
     }
 
     override fun onResume() {
         super.onResume()
-        // 应用回到前台时补一次：若用户在通知栏/小部件点进来但 Activity 未被重建
-        // （launchMode=singleTop 且任务栈已在），channel 已就绪，直接推
-        consumePending()?.let { payload ->
-            channel?.invokeMethod("onIntent", payload)
+        // 架构复审 P1-4：只在 Dart 就绪后补推（冷启动竞态下 onResume 可能先于
+        // getInitialIntent / notifyReady 到达——直接消费会把冷启动意图偷走）。
+        if (dartReady) {
+            consumePending()?.let { payload ->
+                channel?.invokeMethod("onIntent", payload)
+            }
         }
     }
 
@@ -130,7 +145,8 @@ class MainActivity : FlutterActivity() {
                 val uri = intent.dataString
                 if (!uri.isNullOrBlank()) {
                     pendingUri = uri
-                    pendingAction = "capture"
+                    // 架构复审观察-3：不预设 action——是 capture/thought/archived
+                    // 由 Dart 端 LaunchIntent.parseUri 按 host 判定，原生不下结论
                 }
             }
             else -> {

@@ -59,15 +59,20 @@ mixin _AppDatabaseThoughts on _$AppDatabase {
 
     if (tagId == null) {
       return (select(thoughts)
-            ..where((t) =>
-                t.deletedAt.isNull() & t.isArchived.equals(archived))
+            ..where((t) {
+              var expr = t.deletedAt.isNull() & t.isArchived.equals(archived);
+              // 架构复审 P1-7：状态过滤下推 SQL——原来在 _narrow 里逐条比对，
+              // 全表都过一遍 Dart；下推后 SQLite 先收窄，内存只剩拼音判定
+              if (stageId != null) expr = expr & t.stageId.equals(stageId);
+              return expr;
+            })
             ..orderBy([
               (t) => OrderingTerm.desc(t.isPinned),
               (t) => OrderingTerm.desc(t.pinnedAt),
               (t) => OrderingTerm.desc(t.updatedAt),
             ]))
           .watch()
-          .map((list) => _narrow(list, q, stageId));
+          .map((list) => _narrow(list, q));
     }
 
     // 有标签过滤 → inner join；join 查询的 orderBy 收 List<OrderingTerm>
@@ -76,24 +81,26 @@ mixin _AppDatabaseThoughts on _$AppDatabase {
     ])
       ..where(thoughtTags.tagId.equals(tagId) &
           thoughts.deletedAt.isNull() &
-          thoughts.isArchived.equals(archived))
+          thoughts.isArchived.equals(archived) &
+          (stageId == null
+              ? const Constant(true)
+              : thoughts.stageId.equals(stageId)))
       ..orderBy([
         OrderingTerm.desc(thoughts.isPinned),
         OrderingTerm.desc(thoughts.pinnedAt),
         OrderingTerm.desc(thoughts.updatedAt),
       ]);
     return joinQuery.watch().map((rows) =>
-        _narrow(rows.map((r) => r.readTable(thoughts)).toList(), q, stageId));
+        _narrow(rows.map((r) => r.readTable(thoughts)).toList(), q));
   }
 
-  /// 状态 + 查询的内存收窄（两条分支共用，保证语义一致）
-  static List<Thought> _narrow(List<Thought> list, String query, int? stageId) {
-    if (stageId == null && query.isEmpty) return list;
-    return list.where((t) {
-      if (stageId != null && t.stageId != stageId) return false;
-      if (query.isEmpty) return true;
-      return PinyinSearch.matchesAny(t.title, t.content, query);
-    }).toList();
+  /// 查询的内存收窄（两条分支共用，保证语义一致）。
+  /// stageId 已在 SQL 层过滤（P1-7），这里只做拼音 + 字面判定。
+  static List<Thought> _narrow(List<Thought> list, String query) {
+    if (query.isEmpty) return list;
+    return list
+        .where((t) => PinyinSearch.matchesAny(t.title, t.content, query))
+        .toList();
   }
 
   /// 归档流：isArchived = true 且未删（「不做了但别删」的归处，区别于回收站）
@@ -110,7 +117,7 @@ mixin _AppDatabaseThoughts on _$AppDatabase {
           })
           ..orderBy([(t) => OrderingTerm.desc(t.updatedAt)]))
         .watch()
-        .map((list) => _narrow(list, q, null));
+        .map((list) => _narrow(list, q));
   }
 
   /// 归档 / 取消归档。归档时顺手清置顶：归档意味着「不再关心」，
@@ -145,10 +152,35 @@ mixin _AppDatabaseThoughts on _$AppDatabase {
         .watch();
   }
 
-  /// 从回收站恢复（清除软删标记）
-  Future<void> restoreFromTrash(int thoughtId) async {
-    await (update(thoughts)..where((t) => t.id.equals(thoughtId)))
-        .write(const ThoughtsCompanion(deletedAt: Value(null)));
+  /// 从回收站恢复（架构复审 P1-5：恢复语义 = 回常规列表）。
+  ///
+  /// 软删时已清掉 isArchived / isPinned（见 [_softDeleteCompanion]），所以这里
+  /// 只需要清 deletedAt；但要做存在性与引用校验：随记可能已被彻底删除，
+  /// 文件夹可能已随删除软删（指向它 = 恢复后落在一个不可见的文件夹里），
+  /// 状态行理论上不会被删，仍兜底到「灵感」。
+  Future<void> restoreFromTrash(int thoughtId) {
+    return transaction(() async {
+      final thought = await _thoughtById(thoughtId);
+      if (thought == null || thought.deletedAt == null) return;
+      int? folderId = thought.folderId;
+      if (folderId != null) {
+        final target = folderId;
+        final folder = await (select(folders)
+              ..where((f) => f.id.equals(target)))
+            .getSingleOrNull();
+        if (folder == null || folder.deletedAt != null) folderId = null;
+      }
+      final stages = await _orderedStages();
+      final stageOk = stages.any((s) => s.id == thought.stageId);
+      await (update(thoughts)..where((t) => t.id.equals(thoughtId)))
+          .write(ThoughtsCompanion(
+        deletedAt: const Value(null),
+        folderId: folderId == thought.folderId
+            ? const Value.absent()
+            : Value(folderId),
+        stageId: stageOk ? const Value.absent() : const Value(1),
+      ));
+    });
   }
 
   /// 彻底删除单条（回收站内）。
@@ -296,10 +328,25 @@ mixin _AppDatabaseThoughts on _$AppDatabase {
     });
   }
 
+  /// 软删统一写盘入口（架构复审 P1-5：回收站语义）。
+  ///
+  /// 「进回收站」同时清归档与置顶——回收站里的东西恢复后回到常规列表，
+  /// 不会突然出现在归档视图或占用置顶额度。三条路径（单删/批删/速记清空）
+  /// 都走这一个 Companion，语义只写一遍。
+  ThoughtsCompanion _softDeleteCompanion(int now) {
+    return ThoughtsCompanion(
+      deletedAt: Value(now),
+      isArchived: const Value(false),
+      isPinned: const Value(false),
+      pinnedAt: const Value(null),
+      updatedAt: Value(now),
+    );
+  }
+
   /// 软删 → 回收站
   Future<void> softDelete(int thoughtId) async {
     await (update(thoughts)..where((t) => t.id.equals(thoughtId)))
-        .write(ThoughtsCompanion(deletedAt: Value(DateTime.now().millisecondsSinceEpoch)));
+        .write(_softDeleteCompanion(DateTime.now().millisecondsSinceEpoch));
   }
 
   /// 速记落库/更新：500ms 防抖后调用；标题=首行，空内容不留脏数据（§8 空内容验收）
@@ -328,9 +375,7 @@ mixin _AppDatabaseThoughts on _$AppDatabase {
           .getSingleOrNull();
       if (row != null && row.deletedAt == null) {
         await (update(thoughts)..where((t) => t.id.equals(id)))
-            .write(ThoughtsCompanion(
-                deletedAt: Value(now),
-                updatedAt: Value(now)));
+            .write(_softDeleteCompanion(now));
       }
       return -1;
     }

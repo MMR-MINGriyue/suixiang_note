@@ -49,9 +49,8 @@ class _ProfilePageState extends State<ProfilePage> {
         _quickEntry = p.getBool('quick_entry_on') ?? false;
       });
     });
-    // 启动时把库里所有 active 提醒重排一遍：AlarmManager 的排程在进程外，
-    // App 被重装/清数据/系统清理后原始闹钟就没了，全量重排是唯一能自愈的方式
-    ReminderService.rescheduleAll(appDb);
+    // （架构复审 P1-2：启动全量重排收敛到 main.dart 首帧对账一次，
+    // 这里不再 rescheduleAll——原来冷启动会全量重排两遍）
     ReminderService.canScheduleExact().then((ok) {
       if (!mounted) return;
       setState(() => _exactAlarmOk = ok);

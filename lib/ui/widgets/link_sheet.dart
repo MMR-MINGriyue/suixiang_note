@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../data/app_database.dart';
@@ -37,9 +39,13 @@ class _LinkSheetState extends State<LinkSheet> {
   String _kind = 'related';
   final _searchCtrl = TextEditingController();
   String _query = '';
+  // 架构复审 P2-7：300ms 防抖——原来每个按键都 setState 改 _query，
+  // build 里的 watchFeed(query: _query) 随之新建 Stream 退订重订
+  Timer? _debounce;
 
   @override
   void dispose() {
+    _debounce?.cancel();
     _searchCtrl.dispose();
     super.dispose();
   }
@@ -202,7 +208,12 @@ class _LinkSheetState extends State<LinkSheet> {
         padding: const EdgeInsets.symmetric(horizontal: 16),
         child: TextField(
           controller: _searchCtrl,
-          onChanged: (v) => setState(() => _query = v.trim()),
+          onChanged: (v) {
+            _debounce?.cancel();
+            _debounce = Timer(const Duration(milliseconds: 300), () {
+              if (mounted) setState(() => _query = v.trim());
+            });
+          },
           decoration: InputDecoration(
             isDense: true,
             hintText: '搜索目标随记',

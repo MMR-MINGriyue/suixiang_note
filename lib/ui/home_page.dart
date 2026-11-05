@@ -37,10 +37,31 @@ class _HomePageState extends State<HomePage> {
   final Set<int> _selected = {}; // 多选模式选中的随记 id
   List<int> _visibleIds = const []; // 当前可见列表 id（供全选用）
   bool get _multiSelect => _selected.isNotEmpty;
+  // 架构复审 P1-7：信息流只在这里按过滤参数重建一次（提为 State 字段）。
+  // 原来 StreamBuilder 的 stream 在 build 里现场调用 db.watchFeed(...)，
+  // 任何 setState（多选勾选、防抖落字）都会生成新 Stream 对象，StreamBuilder
+  // 检测到引用变化就退订重订 → 全表重读 + 拼音重算。
+  late Stream<List<Thought>> _feedStream;
+
+  /// 按当前过滤参数构造信息流（initState 与过滤变化时调用）
+  Stream<List<Thought>> _makeFeedStream(AppDatabase db) => _showArchived
+      ? db.watchArchived(
+          stageId: _stageFilter, query: _query.isEmpty ? null : _query)
+      : db.watchFeed(
+          query: _query.isEmpty ? null : _query,
+          tagId: _tagFilter,
+          stageId: _stageFilter,
+        );
+
+  /// 过滤参数变化后的统一出口：赋值已由调用方完成，这里只重建流
+  void _refreshFeed(AppDatabase db) {
+    _feedStream = _makeFeedStream(db);
+  }
 
   @override
   void initState() {
     super.initState();
+    _feedStream = _makeFeedStream(widget.db);
     // 长按图标「归档」快捷方式唤起：外部信号到达时切到归档视图，
     // 而不是重建首页（重建会丢掉用户当前的搜索/筛选上下文）
     archivedRequestTicker.addListener(_onArchivedRequest);
@@ -54,6 +75,7 @@ class _HomePageState extends State<HomePage> {
       _tagFilter = null;
       _query = '';
       _searchCtrl.clear();
+      _refreshFeed(widget.db);
     });
   }
 
@@ -68,7 +90,11 @@ class _HomePageState extends State<HomePage> {
   void _onSearchChanged(String v) {
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 300), () {
-      if (mounted) setState(() => _query = v.trim());
+      if (!mounted) return;
+      setState(() {
+        _query = v.trim();
+        _refreshFeed(widget.db);
+      });
     });
   }
 
@@ -161,7 +187,10 @@ class _HomePageState extends State<HomePage> {
                         icon: const Icon(Icons.close, size: 18),
                         onPressed: () {
                           _searchCtrl.clear();
-                          setState(() => _query = '');
+                          setState(() {
+                            _query = '';
+                            _refreshFeed(widget.db);
+                          });
                         },
                       ),
                 contentPadding:
@@ -186,6 +215,7 @@ class _HomePageState extends State<HomePage> {
                       onTap: () => setState(() {
                         _stageFilter = null;
                         _showArchived = false;
+                        _refreshFeed(db);
                       }),
                     ),
                     ...stages.map((s) => _FilterChip(
@@ -196,6 +226,7 @@ class _HomePageState extends State<HomePage> {
                             // 再点一次取消，回到全部——与标签过滤同一心智
                             _stageFilter = _stageFilter == s.id ? null : s.id;
                             _showArchived = false;
+                            _refreshFeed(db);
                           }),
                         )),
                     _FilterChip(
@@ -205,6 +236,7 @@ class _HomePageState extends State<HomePage> {
                       onTap: () => setState(() {
                         _showArchived = !_showArchived;
                         if (_showArchived) _stageFilter = null;
+                        _refreshFeed(db);
                       }),
                     ),
                   ],
@@ -231,8 +263,10 @@ class _HomePageState extends State<HomePage> {
                               selected: _tagFilter == t.id,
                               avatar: Icon(Icons.label, size: 14,
                                   color: parseHexColor(t.color)),
-                              onSelected: (on) =>
-                                  setState(() => _tagFilter = on ? t.id : null),
+                              onSelected: (on) => setState(() {
+                                _tagFilter = on ? t.id : null;
+                                _refreshFeed(db);
+                              }),
                             ),
                           ))
                       .toList(),
@@ -241,17 +275,10 @@ class _HomePageState extends State<HomePage> {
             ),
           ),
           Expanded(
-            // 单流驱动：搜索 / 标签 / 状态 / 归档 任意组合都走 watchFeed
+            // 单流驱动：搜索 / 标签 / 状态 / 归档 任意组合都走 watchFeed；
+            // stream 是 State 字段（P1-7），只在过滤参数变化时重建
             child: StreamBuilder<List<Thought>>(
-              stream: _showArchived
-                  ? db.watchArchived(
-                      stageId: _stageFilter,
-                      query: _query.isEmpty ? null : _query)
-                  : db.watchFeed(
-                      query: _query.isEmpty ? null : _query,
-                      tagId: _tagFilter,
-                      stageId: _stageFilter,
-                    ),
+              stream: _feedStream,
               builder: (context, snap) => _buildList(context, db, snap),
             ),
           ),

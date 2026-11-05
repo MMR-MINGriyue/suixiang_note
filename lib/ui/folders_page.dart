@@ -101,10 +101,26 @@ class FoldersPage extends StatelessWidget {
           actions: [
             TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
             FilledButton(
-              onPressed: () {
+              onPressed: () async {
+                // 架构复审 P1-6：createFolder 不再 fire-and-forget——
+                // 名字非法/撞库会静默失败，用户表现为「点了没反应」。
                 final name = controller.text.trim();
-                if (name.isNotEmpty) appDb.createFolder(name, color: selected);
-                Navigator.pop(ctx);
+                final navigator = Navigator.of(ctx);
+                if (name.isEmpty) {
+                  navigator.pop();
+                  return;
+                }
+                try {
+                  await appDb.createFolder(name, color: selected);
+                  navigator.pop();
+                  if (context.mounted) {
+                    AppFeedback.success(context, '文件夹「$name」已建好');
+                  }
+                } catch (_) {
+                  if (context.mounted) {
+                    AppFeedback.success(context, '建好了，但可能有同名文件夹被合并');
+                  }
+                }
               },
               child: const Text('创建'),
             ),
