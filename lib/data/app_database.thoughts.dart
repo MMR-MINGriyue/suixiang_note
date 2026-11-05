@@ -151,9 +151,26 @@ mixin _AppDatabaseThoughts on _$AppDatabase {
         .write(const ThoughtsCompanion(deletedAt: Value(null)));
   }
 
-  /// 彻底删除单条（回收站内）
+  /// 彻底删除单条（回收站内）。
+  ///
+  /// 架构复审 P0-1：thoughts 被 thoughtTags / reminders / attachments /
+  /// thoughtLinks 四张子表引用，只删主表会留下孤儿行——FK 开启时直接抛约束
+  /// 异常，FK 关闭时孤儿行被备份导出、恢复回灌时整事务回滚。所以按
+  /// 「子表→主表」显式级联，且整段包事务，避免中途失败留下半截数据。
   Future<void> purgeThought(int thoughtId) {
-    return (delete(thoughts)..where((t) => t.id.equals(thoughtId))).go();
+    return transaction(() async {
+      await (delete(thoughtLinks)
+            ..where((l) =>
+                l.fromId.equals(thoughtId) | l.toId.equals(thoughtId)))
+          .go();
+      await (delete(thoughtTags)..where((t) => t.thoughtId.equals(thoughtId)))
+          .go();
+      await (delete(reminders)..where((r) => r.thoughtId.equals(thoughtId)))
+          .go();
+      await (delete(attachments)..where((a) => a.thoughtId.equals(thoughtId)))
+          .go();
+      await (delete(thoughts)..where((t) => t.id.equals(thoughtId))).go();
+    });
   }
 
   /// 移动随记到文件夹（null = 移出/收件箱）
@@ -333,8 +350,24 @@ mixin _AppDatabaseThoughts on _$AppDatabase {
         .getSingleOrNull();
   }
 
-  /// 清空回收站：物理删除已软删随记
+  /// 清空回收站：物理删除已软删随记，连同四张子表的关联行一起。
+  ///
+  /// 架构复审 P0-1：先取出全部待删 id，再用 isIn(ids) 批量级联；整段事务，
+  /// 返回实际删掉的主表行数。子表顺序与 [purgeThought] 一致。
   Future<int> purgeTrash() {
-    return (delete(thoughts)..where((t) => t.deletedAt.isNotNull())).go();
+    return transaction(() async {
+      final rows = await (select(thoughts)
+            ..where((t) => t.deletedAt.isNotNull()))
+          .get();
+      if (rows.isEmpty) return 0;
+      final ids = rows.map((t) => t.id).toList();
+      await (delete(thoughtLinks)
+            ..where((l) => l.fromId.isIn(ids) | l.toId.isIn(ids)))
+          .go();
+      await (delete(thoughtTags)..where((t) => t.thoughtId.isIn(ids))).go();
+      await (delete(reminders)..where((r) => r.thoughtId.isIn(ids))).go();
+      await (delete(attachments)..where((a) => a.thoughtId.isIn(ids))).go();
+      return (delete(thoughts)..where((t) => t.id.isIn(ids))).go();
+    });
   }
 }

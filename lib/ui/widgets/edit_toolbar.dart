@@ -38,7 +38,7 @@ class EditToolbar extends StatelessWidget {
       decoration: BoxDecoration(
         color: dark ? T.darkCard : T.paperCard,
         border: Border(
-          top: BorderSide(color: T.inkTertiary.withValues(alpha: 0.18)),
+          top: BorderSide(color: T.ink3(context).withValues(alpha: 0.18)),
         ),
       ),
       child: Row(children: [
@@ -142,7 +142,9 @@ class _FormatBtn extends StatelessWidget {
                 fontSize: isCode ? 11 : 15,
                 fontWeight: isCode ? FontWeight.w600 : FontWeight.w700,
                 fontFamily: isCode ? 'monospace' : null,
-                color: enabled ? T.inkPrimary : T.inkTertiary.withValues(alpha: 0.4),
+                color: enabled
+                    ? T.ink1(context)
+                    : T.ink3(context).withValues(alpha: 0.4),
               ),
             ),
           ),
@@ -176,8 +178,8 @@ class _IconBtn extends StatelessWidget {
             icon,
             size: 19,
             color: enabled
-                ? T.inkSecondary
-                : T.inkTertiary.withValues(alpha: 0.35),
+                ? T.ink2(context)
+                : T.ink3(context).withValues(alpha: 0.35),
           ),
         ),
       ),

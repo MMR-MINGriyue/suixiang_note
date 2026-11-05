@@ -66,6 +66,10 @@ void main() {
         .write(ThoughtsCompanion(folderId: drift.Value(folderId)));
     await db.advanceStage(id2); // 推进到「推进中」
 
+    // v4：建一条关联边（图谱数据也是用户数据，必须进备份）
+    await db.linkThoughts(id1, id2, kind: 'depends');
+    expect((await db.select(db.thoughtLinks).get()).length, 1);
+
     // 2) 备份
     final backupPath = await backup.backupNow();
     final backupFile = File(backupPath);
@@ -73,11 +77,13 @@ void main() {
     final backups = await backup.listBackups();
     expect(backups.first.path, backupPath);
 
-    // 3) 清库（模拟卸载重装后空库/误清空）：清空 thoughts + folders
+    // 3) 清库（模拟卸载重装后空库/误清空）：清空 thoughts + folders + 关联边
+    await (db.delete(db.thoughtLinks)).go();
     await (db.delete(db.thoughts)).go();
     await (db.delete(db.folders)).go();
     final afterWipe = await db.select(db.thoughts).get();
     expect(afterWipe, isEmpty);
+    expect((await db.select(db.thoughtLinks).get()), isEmpty);
 
     // 4) 恢复
     final restoredCount = await backup.restoreFrom(backupFile);
@@ -99,6 +105,13 @@ void main() {
     final folders = await db.select(db.folders).get();
     expect(folders.length, 1);
     expect(folders.first.name, '工作');
+
+    // v4：关联边必须随备份还原，否则恢复后图谱静默断裂
+    final links = await db.select(db.thoughtLinks).get();
+    expect(links.length, 1);
+    expect(links.first.fromId, id1);
+    expect(links.first.toId, id2);
+    expect(links.first.kind, 'depends');
 
     // 恢复前快照应该也存在（防误恢复机制触发过）
     final backupsAfter = await backup.listBackups();

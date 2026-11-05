@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../data/app_database.dart';
 import '../core/app_signals.dart';
 import '../theme/tokens.dart';
+import 'widgets/app_feedback.dart';
 import 'widgets/color_palette.dart';
 import 'widgets/empty_state.dart';
 
@@ -113,25 +114,16 @@ class FoldersPage extends StatelessWidget {
     );
   }
 
-  void _confirmDelete(BuildContext context, int id, String name) {
-    showDialog<void>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('删除文件夹'),
-        content: Text('「$name」里的随记不会被删除，会回到收件箱（未分类）。'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('取消')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: T.danger),
-            onPressed: () {
-              appDb.deleteFolder(id);
-              Navigator.pop(ctx);
-            },
-            child: const Text('删除'),
-          ),
-        ],
-      ),
+  void _confirmDelete(BuildContext context, int id, String name) async {
+    final ok = await AppFeedback.confirmDanger(
+      context,
+      title: '删除文件夹',
+      content: '「$name」里的随记不会被删除，会回到收件箱（未分类）。',
     );
+    if (!ok || !context.mounted) return;
+    await appDb.deleteFolder(id);
+    if (!context.mounted) return;
+    AppFeedback.success(context, '文件夹「$name」已删除');
   }
 }
 

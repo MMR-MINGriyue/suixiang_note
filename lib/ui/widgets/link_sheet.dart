@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../data/app_database.dart';
 import '../../theme/tokens.dart';
 import '../detail_page.dart';
+import 'app_feedback.dart';
 
 /// 关联面板：列出当前随记的所有关联，并允许新建/删除。
 ///
@@ -157,7 +158,16 @@ class _LinkSheetState extends State<LinkSheet> {
                 icon: const Icon(Icons.close, size: 18),
                 tooltip: '取消关联',
                 onPressed: () async {
+                  final ok = await AppFeedback.confirmDanger(
+                    context,
+                    title: '取消关联',
+                    content: '只断开这两条随记的连线，不会删除任何一条随记。',
+                    confirmLabel: '取消关联',
+                  );
+                  if (!ok || !context.mounted) return;
                   await widget.db.unlinkThought(item.link.id);
+                  if (!context.mounted) return;
+                  AppFeedback.success(context, '关联已取消');
                 },
               ),
               onTap: () => _openOther(item.other),
@@ -256,15 +266,10 @@ class _LinkSheetState extends State<LinkSheet> {
     if (!mounted) return;
     if (ok) {
       setState(() => _picking = false);
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text('已关联「${target.title.trim().isEmpty ? '无标题' : target.title}」'),
-        duration: const Duration(seconds: 2),
-      ));
+      AppFeedback.success(context,
+          '已关联「${target.title.trim().isEmpty ? '无标题' : target.title}」');
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('这条已经关联过了'),
-        duration: Duration(seconds: 2),
-      ));
+      AppFeedback.success(context, '这条已经关联过了');
     }
   }
 

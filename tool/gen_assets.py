@@ -141,6 +141,41 @@ def illus_trash():
     save(img, 'illus', 'empty_trash.png')
 
 
+# ── 6. 插画四：关系图谱空态「散点待连线」160×120 ──
+def illus_graph():
+    """三个空心节点 + 两条虚线，第三条故意留缺口，表达「网还没长成」。"""
+    img = Image.new('RGBA', (320, 240), (0, 0, 0, 0))  # 2x 超采样
+    d = ImageDraw.Draw(img)
+    ink = rgba(MIST)
+    nodes = [(92, 88), (222, 104), (156, 186)]
+
+    def dashed(p, q, width=3, dash=14, gap=11):
+        dx, dy = q[0] - p[0], q[1] - p[1]
+        dist = math.hypot(dx, dy)
+        ux, uy = dx / dist, dy / dist
+        t = 0.0
+        while t < dist:
+            e = min(t + dash, dist)
+            d.line((p[0] + ux * t, p[1] + uy * t,
+                    p[0] + ux * e, p[1] + uy * e),
+                   fill=rgba(MIST, 170), width=width)
+            t += dash + gap
+
+    # 前两点连实虚线，第三点只连一半：一眼看出「还差一条」
+    dashed(nodes[0], nodes[1])
+    dashed(nodes[1], (nodes[1][0] + (nodes[2][0] - nodes[1][0]) * 0.45,
+                      nodes[1][1] + (nodes[2][1] - nodes[1][1]) * 0.45))
+    # 节点：纸底空心圆 + 中心珠绿小点（有内容，但还没连起来）
+    for (x, y) in nodes:
+        d.ellipse((x - 17, y - 17, x + 17, y + 17),
+                  outline=ink, width=4, fill=rgba(PAPER, 210))
+        d.ellipse((x - 5, y - 5, x + 5, y + 5), fill=rgba(DONE))
+    # 中心悬一滴靛蓝小珠：呼应「关联会长出来」
+    draw_drop(d, 160, 128, 9, rgba(BRAND), width=3)
+    img = img.resize((160, 120), Image.LANCZOS)
+    save(img, 'illus', 'empty_graph.png')
+
+
 if __name__ == '__main__':
     print('paper texture:')
     paper_texture()
@@ -148,4 +183,5 @@ if __name__ == '__main__':
     illus_home()
     illus_folder()
     illus_trash()
+    illus_graph()
     print('done.')

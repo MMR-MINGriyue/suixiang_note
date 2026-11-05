@@ -44,6 +44,11 @@ class ReminderReceiver : BroadcastReceiver() {
         }
 
         if (repeat != "once") {
+            // 从原始排程时刻续期，而不是当前时间：Doze 让闹钟晚响几分钟时，
+            // 用当前时间会把明天的提醒也顺延，逐日漂移（架构复审 P0-2）。
+            val base = intent.getLongExtra(
+                ReminderScheduler.EXTRA_FIRE_AT, System.currentTimeMillis()
+            )
             ReminderScheduler.rescheduleRepeat(
                 context = context,
                 id = id,
@@ -51,7 +56,7 @@ class ReminderReceiver : BroadcastReceiver() {
                 repeatRule = repeat,
                 title = title,
                 body = body,
-                from = System.currentTimeMillis(),
+                from = base,
             )
         }
     }

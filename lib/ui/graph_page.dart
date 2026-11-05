@@ -4,6 +4,7 @@ import '../core/force_layout.dart';
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
 import 'detail_page.dart';
+import 'widgets/empty_state.dart';
 
 /// 关系图谱页：把随记画成点，把关联画成线。
 ///
@@ -68,7 +69,7 @@ class _GraphPageState extends State<GraphPage> {
           }
           final data = snap.data;
           if (data == null || data.isEmpty) {
-            return _empty(context, dark);
+            return _empty();
           }
           // 布局只算一次：FutureBuilder 每次重建都重算 300 次迭代会卡
           final layout = _layout ??= ForceLayout.compute(
@@ -125,31 +126,11 @@ class _GraphPageState extends State<GraphPage> {
     );
   }
 
-  Widget _empty(BuildContext context, bool dark) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Icon(Icons.hub_outlined,
-                size: 44, color: T.inkTertiary.withValues(alpha: 0.6)),
-            const SizedBox(height: 14),
-            const Text('还没有可以连起来的东西',
-                style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
-            const SizedBox(height: 8),
-            Text(
-              '在随记详情页点「关联」，把它和另一条随记连起来，\n这里就会长出第一张网。',
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: 12.5,
-                height: 1.6,
-                color: dark ? T.darkInkSecondary : T.inkSecondary,
-              ),
-            ),
-          ],
-        ),
-      ),
+  Widget _empty() {
+    return const EmptyState(
+      illus: 'empty_graph.png',
+      title: '还没有可以连起来的东西',
+      subtitle: '在随记详情页点「关联」，把它和另一条随记连起来，\n这里就会长出第一张网。',
     );
   }
 

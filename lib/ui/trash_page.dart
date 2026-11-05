@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
+import 'widgets/app_feedback.dart';
 import 'widgets/empty_state.dart';
 
 /// 回收站：软删随记列表，支持恢复 / 彻底删除 / 清空。
@@ -50,26 +51,16 @@ class TrashPage extends StatelessWidget {
   }
 
   Future<void> _purgeAll(BuildContext context) async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('清空回收站'),
-        content: const Text('将永久删除全部已删随记，此操作不可撤销。'),
-        actions: [
-          TextButton(onPressed: () => Navigator.pop(ctx, false), child: const Text('取消')),
-          FilledButton(
-            style: FilledButton.styleFrom(backgroundColor: T.danger),
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('清空'),
-          ),
-        ],
-      ),
+    final ok = await AppFeedback.confirmDanger(
+      context,
+      title: '清空回收站',
+      content: '将永久删除全部已删随记，此操作不可撤销。',
+      confirmLabel: '清空',
     );
-    if (ok == true && context.mounted) {
-      await db.purgeTrash();
+    if (ok && context.mounted) {
+      final count = await db.purgeTrash();
       if (context.mounted) {
-        ScaffoldMessenger.of(context)
-            .showSnackBar(const SnackBar(content: Text('回收站已清空')));
+        AppFeedback.success(context, '回收站已清空 · $count 条');
       }
     }
   }
@@ -153,6 +144,11 @@ class _TrashCard extends StatelessWidget {
         ],
       ),
     );
-    if (ok == true) await db.purgeThought(thought.id);
+    if (ok == true && context.mounted) {
+      await db.purgeThought(thought.id);
+      if (context.mounted) {
+        AppFeedback.success(context, '「${thought.title}」已彻底删除');
+      }
+    }
   }
 }

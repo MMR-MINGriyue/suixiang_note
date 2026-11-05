@@ -162,13 +162,13 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
                   hintText: '第一个念头，从一颗水滴开始…',
-                  hintStyle: const TextStyle(color: T.inkTertiary, fontSize: 16),
+                  hintStyle: TextStyle(color: T.ink3(context), fontSize: 16),
                   border: InputBorder.none,
                 ),
-                style: const TextStyle(
+                style: TextStyle(
                     fontSize: 17,
                     height: 1.7,
-                    color: T.inkPrimary),
+                    color: T.ink1(context)),
               ),
             ),
             // 创意 ②-3：快捷 chip 行——不打断书写就能打标签/归文件夹

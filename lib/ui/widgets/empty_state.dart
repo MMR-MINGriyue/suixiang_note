@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
 
-import '../../theme/tokens.dart';
-
 /// 统一空态组件（创意 ④-3/⑥-4）：预渲染线稿插画 + 标题 + 副文案 + 可选动作。
 /// 插画为 160×120 PNG 位图（2x 超采样生成），深色主题用 ColorFiltered 调色。
 class EmptyState extends StatelessWidget {
@@ -49,8 +47,7 @@ class EmptyState extends StatelessWidget {
             if (subtitle != null) ...[
               const SizedBox(height: 6),
               Text(subtitle!,
-                  style:
-                      theme.textTheme.bodySmall?.copyWith(color: T.inkSecondary),
+                  style: theme.textTheme.bodySmall,
                   textAlign: TextAlign.center),
             ],
             if (actionLabel != null && onAction != null) ...[

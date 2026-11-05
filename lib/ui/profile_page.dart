@@ -14,6 +14,7 @@ import '../theme/tokens.dart';
 import 'daily_review_page.dart';
 import 'graph_page.dart';
 import 'tag_manage_page.dart';
+import 'widgets/app_feedback.dart';
 import 'widgets/drop_badge.dart';
 
 /// Tab 2 我的（M6 设置闭环，v1.0 按 PM 评审「9 行」收敛版）：
@@ -332,8 +333,17 @@ class _ProfilePageState extends State<ProfilePage> {
                         icon: const Icon(Icons.close, size: 18),
                         tooltip: '取消这个提醒',
                         onPressed: () async {
+                          final ok = await AppFeedback.confirmDanger(
+                            context,
+                            title: '取消提醒',
+                            content: '「${it.headline}」到点不再提醒你。',
+                            confirmLabel: '取消提醒',
+                          );
+                          if (!ok || !context.mounted) return;
                           await appDb.deleteReminder(it.reminder.id);
                           await ReminderService.cancel(it.reminder.id);
+                          if (!context.mounted) return;
+                          AppFeedback.success(context, '提醒已取消');
                         },
                       ),
                     ),

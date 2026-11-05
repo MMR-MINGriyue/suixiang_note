@@ -22,6 +22,9 @@ object ReminderScheduler {
     const val EXTRA_TITLE = "reminder_title"
     const val EXTRA_BODY = "reminder_body"
     const val EXTRA_REPEAT = "reminder_repeat"
+    // 原始排程时刻：重复提醒续期必须从这个基准推，而不是从「响铃的当前时间」推，
+    // 否则 Doze 延迟响铃会让每天的提醒逐日漂移。见架构复审 P0-2。
+    const val EXTRA_FIRE_AT = "reminder_fire_at"
 
     private const val REQ_OFFSET = 10_000
 
@@ -59,6 +62,7 @@ object ReminderScheduler {
             EXTRA_TITLE to title,
             EXTRA_BODY to body,
             EXTRA_REPEAT to repeatRule,
+            EXTRA_FIRE_AT to fireAt,
         ))
 
         val canExact = canScheduleExact(context)

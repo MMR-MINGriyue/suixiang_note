@@ -87,11 +87,27 @@ mixin _AppDatabaseReminders on _$AppDatabase, _AppDatabaseFoldersTags {
                 Value(DateTime.now().millisecondsSinceEpoch)));
   }
 
-  /// 非重复提醒弹出后关闭；重复提醒由原生侧自己续期，这里只记 lastFiredAt
+  /// 重复提醒弹出后：推进 DB 侧的 remindAt，同时记 lastFiredAt。
+  ///
+  /// 架构复审 P0-2：原来只写 lastFiredAt，remindAt 永远停在首次设定的过去
+  /// 时刻，导致 takeDueReminders 每次冷启动/回前台都把它判为到期、反复弹。
+  /// 原生 AlarmManager 与 DB 是两套时钟，必须对账：这里把下一次触发时刻
+  /// 按 nextRemindAtAfter 推进到严格晚于现在，与 Kotlin 的日历规则对齐。
+  /// 若规则不可续期（或 512 步仍未跨过现在）则降级为 fired，绝不把
+  /// active + 过去时刻的行留在库里。
   Future<void> markReminderFiredKeepActive(int reminderId) async {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final row = await (select(reminders)
+          ..where((r) => r.id.equals(reminderId)))
+        .getSingleOrNull();
+    if (row == null) return;
+    final next = nextRemindAtAfter(row.remindAt, row.repeatRule, now);
     await (update(reminders)..where((r) => r.id.equals(reminderId))).write(
         RemindersCompanion(
-            lastFiredAt: Value(DateTime.now().millisecondsSinceEpoch)));
+      lastFiredAt: Value(now),
+      remindAt: next != null ? Value(next) : const Value.absent(),
+      status: next != null ? const Value.absent() : const Value('fired'),
+    ));
   }
 
   /// 启动对账用：一次性取所有 active 提醒的完整信息（含正文首页行做通知标题）

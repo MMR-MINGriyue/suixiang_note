@@ -13,11 +13,15 @@ import 'app_database.dart';
 /// - 备份写到**用户可见目录**（Windows: 我的文档\suixiang_note_backups），
 ///   绝不只写应用沙箱 —— 沙箱备份随卸载/清数据全失（PRD 原方案已被评审否决）。
 /// - 保留最近 7 份，超出的按修改时间清理（PRD §4.7）。
-/// - JSON 快照：formatVersion + schemaVersion + 全 8 表（键 = drift 生成 DataClass
+/// - JSON 快照：formatVersion + schemaVersion + 全 9 表（键 = drift 生成 DataClass
 ///   toJson 的 camelCase 键；恢复走 fromJson → toCompanion → insertOnConflictUpdate，
-///   全程生成代码，不手写字段映射）。
-/// - 恢复策略 v1.0：整库替换 —— 事务内先清空 7 表（stages 保留种子行被覆盖），
+///   全程生成代码，不手写字段映射）。v4 新增的 thought_links 也在这里——
+///   关联边和随记正文一样是用户数据，漏掉它等于图谱在恢复后悄悄断掉。
+/// - 恢复策略：整库替换 —— 事务内先清空 8 表（stages 保留种子行被覆盖；
+///   thought_links 一并清空重灌，避免旧边残留指向已删除的随记），
 ///   再按备份重灌；恢复前自动把当前库再做一份快照（防误恢复）。
+/// - 兼容旧备份：v1.0–v2.0 的快照里没有 'thoughtLinks' 键，恢复时按空列表处理，
+///   老备份仍可正常还原，不会因缺键抛异常。
 class BackupService {
   final AppDatabase db;
   BackupService(this.db);
@@ -61,6 +65,8 @@ class BackupService {
       'reminders': (await db.select(db.reminders).get()).map((r) => r.toJson()).toList(),
       'attachments': (await db.select(db.attachments).get()).map((r) => r.toJson()).toList(),
       'settings': (await db.select(db.settings).get()).map((r) => r.toJson()).toList(),
+      // v4：随记之间的关联边。备份漏掉它 = 恢复后图谱静默断裂。
+      'thoughtLinks': (await db.select(db.thoughtLinks).get()).map((r) => r.toJson()).toList(),
     };
 
     await file.writeAsString(const JsonEncoder.withIndent('  ').convert(snapshot));
@@ -105,6 +111,8 @@ class BackupService {
       await db.delete(db.thoughtTags).go();
       await db.delete(db.attachments).go();
       await db.delete(db.reminders).go();
+      // v4：关联边先于随记清空（两边都引用 thoughts，且 UNIQUE 约束可能撞）
+      await db.delete(db.thoughtLinks).go();
       await db.delete(db.thoughts).go();
       await db.delete(db.tags).go();
       await db.delete(db.folders).go();
@@ -137,6 +145,11 @@ class BackupService {
       for (final r in (map['attachments'] as List? ?? [])) {
         await db.into(db.attachments).insertOnConflictUpdate(
             Attachment.fromJson(r as Map<String, dynamic>).toCompanion(true));
+      }
+      // v4：关联边在随记重灌之后再插（外键指向已存在的行）
+      for (final r in (map['thoughtLinks'] as List? ?? [])) {
+        await db.into(db.thoughtLinks).insertOnConflictUpdate(
+            ThoughtLink.fromJson(r as Map<String, dynamic>).toCompanion(true));
       }
       // settings：跳过 last_backup_at（恢复后以恢复时刻重计）
       for (final r in (map['settings'] as List? ?? [])) {

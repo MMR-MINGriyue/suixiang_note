@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../core/reminder_service.dart';
 import '../data/app_database.dart';
 import '../theme/tokens.dart';
+import 'widgets/app_feedback.dart';
 
 /// 提醒设置半屏面板（v1.6）
 ///
@@ -82,6 +83,10 @@ class _ReminderSheetState extends State<ReminderSheet> {
           ReminderWithThought(item, widget.thought));
     }
     if (!mounted) return;
+    // 写库 + 排程完成后给一次确认；反馈挂在底层 Scaffold 上，
+    // pop 之前先发出，避免半屏面板消失后 SnackBar 找不到宿主。
+    AppFeedback.success(context,
+        '已设定提醒 · ${DateFormat('M月d日 HH:mm').format(fireAt)}');
     Navigator.pop(context, true);
   }
 
@@ -118,9 +123,17 @@ class _ReminderSheetState extends State<ReminderSheet> {
 
   Future<void> _clear() async {
     if (_existing == null) return;
+    final ok = await AppFeedback.confirmDanger(
+      context,
+      title: '取消提醒',
+      content: '这条随记到点不再提醒你。',
+      confirmLabel: '取消提醒',
+    );
+    if (!ok || !mounted) return;
     await widget.db.deleteReminder(_existing!.id);
     await ReminderService.cancel(_existing!.id);
     if (!mounted) return;
+    AppFeedback.success(context, '提醒已取消');
     Navigator.pop(context, true);
   }
 
@@ -252,21 +265,21 @@ class _QuickRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final color = danger ? T.danger : T.inkPrimary;
+    final color = danger ? T.danger : T.ink1(context);
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(12),
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
         child: Row(children: [
-          Icon(icon, size: 20, color: danger ? T.danger : T.inkSecondary),
+          Icon(icon, size: 20, color: danger ? T.danger : T.ink2(context)),
           const SizedBox(width: 12),
           Expanded(
             child: Text(label,
                 style: TextStyle(fontSize: 15, color: color)),
           ),
           if (!danger)
-            const Icon(Icons.chevron_right, size: 18, color: T.inkTertiary),
+            Icon(Icons.chevron_right, size: 18, color: T.ink3(context)),
         ]),
       ),
     );

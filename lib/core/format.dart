@@ -107,3 +107,56 @@ String stagnationLabel(int? stageChangedAt, String kind, {DateTime? now}) {
   if (days < 3) return '';
   return '停在这里 $days 天';
 }
+
+// ═══════════════ 重复提醒续期（架构复审 P0-2） ═══════════════
+
+/// 重复提醒的下一次触发时刻（单步）。
+///
+/// 与 Kotlin `ReminderScheduler.nextOccurrence` 是同一套规则：按**本地日历**
+/// 推进，daily +1 天 / weekly +7 天 / monthly +1 月，其它规则返回 null
+/// （不再续期）。用 `DateTime` 构造而不是 `Duration(days: 1)`，是为了对齐
+/// Calendar.add 的日历语义——Duration 是绝对 24 小时，跨夏令时会漂 1 小时；
+/// 而 monthly 的月末溢出（1/31 +1月）必须 clamp 到目标月最后一天，
+/// Dart 直接 `DateTime(y, m+1, 31)` 会溢出到下下个月，必须手动夹。
+int? nextRemindAt(int from, String repeatRule) {
+  final at = DateTime.fromMillisecondsSinceEpoch(from);
+  var year = at.year;
+  var month = at.month;
+  var day = at.day;
+  switch (repeatRule) {
+    case 'daily':
+      day += 1;
+      break;
+    case 'weekly':
+      day += 7;
+      break;
+    case 'monthly':
+      year = at.month == 12 ? at.year + 1 : at.year;
+      month = at.month == 12 ? 1 : at.month + 1;
+      final lastDay = DateTime(year, month + 1, 0).day; // 目标月最后一天
+      day = at.day > lastDay ? lastDay : at.day;
+      break;
+    default:
+      return null;
+  }
+  return DateTime(year, month, day, at.hour, at.minute, at.second,
+          at.millisecond, at.microsecond)
+      .millisecondsSinceEpoch;
+}
+
+/// 一直推进到严格晚于 [now]。
+///
+/// 场景：设了「每天 09:00」但十天没打开 App，remindAt 还停在十天前；
+/// 只推一天的话下次启动仍会被判到期，又弹一次。一次对齐到未来才是对账。
+/// 512 步上限防未知规则导致死循环；走满仍没跨过 now 返回 null，
+/// 让调用方降级为 fired（绝不把 active+过去时刻留在库里）。
+int? nextRemindAtAfter(int from, String repeatRule, int now) {
+  var cur = from;
+  for (var i = 0; i < 512; i++) {
+    final next = nextRemindAt(cur, repeatRule);
+    if (next == null) return null;
+    if (next > now) return next;
+    cur = next;
+  }
+  return null;
+}

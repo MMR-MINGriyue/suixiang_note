@@ -28,7 +28,7 @@ class MarkdownPreview extends StatelessWidget {
     if (text.trim().isEmpty) {
       return Center(
         child: Text('空白的纸',
-            style: TextStyle(fontSize: 13, color: T.inkTertiary)),
+            style: TextStyle(fontSize: 13, color: T.ink3Of(dark))),
       );
     }
     final blocks = _parseBlocks(text);
@@ -66,12 +66,12 @@ class MarkdownPreview extends StatelessWidget {
             border: Border(left: BorderSide(color: T.brandPrimary.withValues(alpha: 0.45), width: 3)),
             color: dark ? T.darkCardAlt : T.paperCardAlt,
           ),
-          child: _rich(b.content, size: 14, dark: dark, color: T.inkSecondary),
+          child: _rich(b.content, size: 14, dark: dark, color: T.ink2Of(dark)),
         );
       case _BlockType.hr:
         return Padding(
           padding: const EdgeInsets.symmetric(vertical: 14),
-          child: Divider(height: 1, color: T.inkTertiary.withValues(alpha: 0.3)),
+          child: Divider(height: 1, color: T.ink3Of(dark).withValues(alpha: 0.3)),
         );
       case _BlockType.bullet:
         return _listRow(context, bullet: '•', content: b.content, dark: dark);
@@ -86,7 +86,7 @@ class MarkdownPreview extends StatelessWidget {
               child: Icon(
                 b.checked ? Icons.check_box : Icons.check_box_outline_blank,
                 size: 18,
-                color: b.checked ? T.stageDone : T.inkTertiary,
+                color: b.checked ? T.stageDone : T.ink3Of(dark),
               ),
             ),
             Expanded(
@@ -94,7 +94,7 @@ class MarkdownPreview extends StatelessWidget {
                   size: 15,
                   dark: dark,
                   strike: b.checked,
-                  color: b.checked ? T.inkTertiary : null),
+                  color: b.checked ? T.ink3Of(dark) : T.ink1Of(dark)),
             ),
           ]),
         );
@@ -114,7 +114,7 @@ class MarkdownPreview extends StatelessWidget {
         SizedBox(
           width: 22,
           child: Text(bullet,
-              style: TextStyle(fontSize: 14, color: T.inkSecondary, height: 1.7)),
+              style: TextStyle(fontSize: 14, color: T.ink2Of(dark), height: 1.7)),
         ),
         Expanded(child: _rich(content, size: 15, dark: dark)),
       ]),
@@ -165,7 +165,7 @@ class MarkdownPreview extends StatelessWidget {
           fontSize: size,
           height: 1.7,
           fontWeight: weight,
-          color: color,
+          color: color ?? T.ink1Of(dark),
           decoration: strike ? TextDecoration.lineThrough : null,
         ),
       ),
