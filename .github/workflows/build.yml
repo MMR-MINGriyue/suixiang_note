@@ -3,7 +3,9 @@ name: Build
 on:
   push:
     branches: [main]
-    tags: ['v*']
+    # 发版 tag 规范：应用名+版本号（随想随记 → suixiang_note）
+    # 例：suixiang_note-v2.2.0；兼容旧裸版本号 v2.2.0（历史 tag 已按此发布）
+    tags: ['v*', 'suixiang_note-v*']
   workflow_dispatch:
 
 permissions:
