@@ -604,11 +604,10 @@ class _DetailPageState extends State<DetailPage> {
                         ? Icons.notifications_active
                         : Icons.notifications_none,
                     size: 20,
-                    color: _hasReminder ? T.brandPrimary : null),
+                    color: _hasReminder ? T.brandPrimary : T.inkSecondary),
                 title: Text(_hasReminder ? '修改提醒' : '提醒我'),
               ),
-            ),
-            const PopupMenuItem(
+            ),            const PopupMenuItem(
               value: 'tag',
               child: ListTile(
                 dense: true,
@@ -625,7 +624,7 @@ class _DetailPageState extends State<DetailPage> {
                 leading: Icon(
                     _linkCount > 0 ? Icons.hub : Icons.add_link,
                     size: 20,
-                    color: _linkCount > 0 ? T.brandPrimary : null),
+                    color: _linkCount > 0 ? T.brandPrimary : T.inkSecondary),
                 title: Text(_linkCount > 0 ? '关联（$_linkCount 条）' : '关联到别的随记'),
               ),
             ),

@@ -105,13 +105,16 @@ class _TagManagePageState extends State<TagManagePage> {
           },
           itemBuilder: (_) => const [
             PopupMenuItem(value: 'rename', child: ListTile(
-                leading: Icon(Icons.edit_outlined), title: Text('重命名'),
+                leading: Icon(Icons.edit_outlined, size: 20),
+                title: Text('重命名'),
                 contentPadding: EdgeInsets.zero)),
             PopupMenuItem(value: 'color', child: ListTile(
-                leading: Icon(Icons.palette_outlined), title: Text('换颜色'),
+                leading: Icon(Icons.palette_outlined, size: 20),
+                title: Text('换颜色'),
                 contentPadding: EdgeInsets.zero)),
             PopupMenuItem(value: 'delete', child: ListTile(
-                leading: Icon(Icons.delete_outline, color: T.danger),
+                leading: Icon(Icons.delete_outline,
+                    size: 20, color: T.danger),
                 title: Text('删除', style: TextStyle(color: T.danger)),
                 contentPadding: EdgeInsets.zero)),
           ],

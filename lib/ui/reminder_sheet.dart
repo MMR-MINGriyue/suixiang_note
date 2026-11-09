@@ -279,7 +279,8 @@ class _QuickRow extends StatelessWidget {
                 style: TextStyle(fontSize: 15, color: color)),
           ),
           if (!danger)
-            Icon(Icons.chevron_right, size: 18, color: T.ink3(context)),
+            // 尺寸阶梯②：chevron 统一 22px 弱色（与 profile 入口行同款）
+            Icon(Icons.chevron_right, size: 22, color: T.ink3(context)),
         ]),
       ),
     );

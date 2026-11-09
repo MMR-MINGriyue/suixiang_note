@@ -12,6 +12,7 @@ import 'ui/folders_page.dart';
 import 'ui/home_page.dart';
 import 'ui/profile_page.dart';
 import 'ui/quick_capture_sheet.dart';
+import 'ui/widgets/drop_badge.dart';
 
 /// 随想随记 — 本地优先的轻量灵感管理
 /// v1.5：外部入口（桌面小部件 / 通知栏常驻 / 系统分享 / 深链）直达速记
@@ -224,9 +225,24 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
         destinations: const [
-          NavigationDestination(icon: Icon(Icons.water_drop_outlined), label: '随记'),
-          NavigationDestination(icon: Icon(Icons.folder_outlined), label: '文件夹'),
-          NavigationDestination(icon: Icon(Icons.settings_outlined), label: '我的'),
+          // 图标规范①：导航栏选中态 filled / 未选中 outlined（三组成对）。
+          // 「随记」的品牌水滴：灵感态轮廓即未选中、实心水滴即选中，
+          // 与列表里的 DropBadge 三态语言同源。
+          NavigationDestination(
+            icon: Icon(DropBadgeIcons.dropOutline),
+            selectedIcon: Icon(Icons.water_drop),
+            label: '随记',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.folder_outlined),
+            selectedIcon: Icon(Icons.folder),
+            label: '文件夹',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.settings_outlined),
+            selectedIcon: Icon(Icons.settings),
+            label: '我的',
+          ),
         ],
         onDestinationSelected: (i) => setState(() => _index = i),
       ),

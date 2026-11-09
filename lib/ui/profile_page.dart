@@ -244,10 +244,16 @@ class _ProfilePageState extends State<ProfilePage> {
           Card(
             child: Column(children: [
               ListTile(
+                // 图标规范①：入口行统一 outlined（点击后才进入填充语义的页面）
                 leading: const Icon(Icons.label_outline, color: T.brandPrimary),
                 title: const Text('标签管理'),
                 subtitle: const Text('查看、重命名、换色、删除标签'),
-                trailing: const Icon(Icons.chevron_right),
+                // 图标规范④：chevron 统一弱色——它是「还有下级」的形状标记，
+                // 不该和内容图标抢视觉权重
+                trailing: Icon(Icons.chevron_right,
+                    size: 22,
+                    color: T.ink3Of(
+                        Theme.of(context).brightness == Brightness.dark)),
                 onTap: () => Navigator.push(context,
                     MaterialPageRoute(builder: (_) => TagManagePage(db: appDb))),
               ),
@@ -257,6 +263,8 @@ class _ProfilePageState extends State<ProfilePage> {
                 future: appDb.reviewedToday(),
                 builder: (context, snap) {
                   final done = snap.data == true;
+                  final dark =
+                      Theme.of(context).brightness == Brightness.dark;
                   return ListTile(
                     leading: const Icon(Icons.auto_awesome_outlined,
                         color: T.brandPrimary),
@@ -267,7 +275,8 @@ class _ProfilePageState extends State<ProfilePage> {
                     trailing: done
                         ? const Icon(Icons.check_circle,
                             size: 20, color: T.stageDone)
-                        : const Icon(Icons.chevron_right),
+                        : Icon(Icons.chevron_right,
+                            size: 22, color: T.ink3Of(dark)),
                     onTap: () => Navigator.push(
                       context,
                       MaterialPageRoute(
@@ -282,7 +291,10 @@ class _ProfilePageState extends State<ProfilePage> {
                 leading: const Icon(Icons.hub_outlined, color: T.stageDone),
                 title: const Text('关系图谱'),
                 subtitle: const Text('看随记之间连成了什么形状'),
-                trailing: const Icon(Icons.chevron_right),
+                trailing: Icon(Icons.chevron_right,
+                    size: 22,
+                    color: T.ink3Of(
+                        Theme.of(context).brightness == Brightness.dark)),
                 onTap: () => Navigator.push(context,
                     MaterialPageRoute(builder: (_) => GraphPage(db: appDb))),
               ),
@@ -316,11 +328,13 @@ class _ProfilePageState extends State<ProfilePage> {
                   for (final it in items.take(8))
                     ListTile(
                       dense: true,
-                      leading: Icon(
-                        it.isRepeating ? Icons.repeat : Icons.alarm,
-                        size: 20,
-                        color: T.brandPrimary,
-                      ),
+                    leading: Icon(
+                      // 图标规范①：重复提醒用 repeat 表达「会再来」，
+                      // 一次性用 alarm（outlined 家族，20px 菜单档）
+                      it.isRepeating ? Icons.repeat : Icons.alarm,
+                      size: 20,
+                      color: T.brandPrimary,
+                    ),
                       title: Text(it.headline,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,

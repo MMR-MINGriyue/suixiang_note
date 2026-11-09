@@ -127,7 +127,9 @@ class _HomePageState extends State<HomePage> {
         actions: [
           if (_multiSelect)
             IconButton(
-              icon: const Icon(Icons.select_all),
+              // 图标规范②：全选/清空是「清单勾选」动作，checklist 比旧
+              // select_all（方框带叉）语义更准，与多选卡的 check_circle 同族
+              icon: const Icon(Icons.checklist),
               tooltip: '全选/清空',
               onPressed: () {
                 setState(() {
@@ -185,6 +187,7 @@ class _HomePageState extends State<HomePage> {
                     ? null
                     : IconButton(
                         icon: const Icon(Icons.close, size: 18),
+                        tooltip: '清空搜索',
                         onPressed: () {
                           _searchCtrl.clear();
                           setState(() {
@@ -261,7 +264,11 @@ class _HomePageState extends State<HomePage> {
                             child: ChoiceChip(
                               label: Text(t.name, style: const TextStyle(fontSize: 12)),
                               selected: _tagFilter == t.id,
-                              avatar: Icon(Icons.label, size: 14,
+                              // 图标规范①：chip 选中态用 filled label，未选中 outlined
+                              avatar: Icon(_tagFilter == t.id
+                                  ? Icons.label
+                                  : Icons.label_outline,
+                                  size: 14,
                                   color: parseHexColor(t.color)),
                               onSelected: (on) => setState(() {
                                 _tagFilter = on ? t.id : null;
@@ -474,7 +481,8 @@ class _FilterChip extends StatelessWidget {
               const SizedBox(width: 6),
             ],
             if (icon != null) ...[
-              Icon(icon, size: 13, color: fg),
+              // 尺寸阶梯②：chip 内图标 13px 非 ladder 值，归到 14px 档
+              Icon(icon, size: 14, color: fg),
               const SizedBox(width: 4),
             ],
             Text(label,
@@ -618,12 +626,12 @@ class _NoteCard extends StatelessWidget {
                             children: [
                               if (thought.isPinned) ...[
                                 const Icon(Icons.push_pin,
-                                    size: 12, color: T.stageInProgress),
+                                    size: 14, color: T.stageInProgress),
                                 const SizedBox(width: 4),
                               ],
                               if (thought.isArchived) ...[
                                 const Icon(Icons.archive_outlined,
-                                    size: 12, color: T.inkTertiary),
+                                    size: 14, color: T.inkTertiary),
                                 const SizedBox(width: 4),
                               ],
                               Expanded(
@@ -665,12 +673,12 @@ class _NoteCard extends StatelessWidget {
                       children: [
                         if (thought.isPinned) ...[
                           const Icon(Icons.push_pin,
-                              size: 12, color: T.stageInProgress),
+                              size: 14, color: T.stageInProgress),
                           const SizedBox(width: 4),
                         ],
                         if (thought.isArchived) ...[
                           const Icon(Icons.archive_outlined,
-                              size: 12, color: T.inkTertiary),
+                              size: 14, color: T.inkTertiary),
                           const SizedBox(width: 4),
                         ],
                         Expanded(
@@ -872,6 +880,7 @@ class _NoteCard extends StatelessWidget {
           if (prevStageOf(stages, stage.id) case final prev?
               when prev.id != stage.id)
             ListTile(
+              // 尺寸阶梯②：菜单 leading 统一 22px（与 BatchActionBar 同档）
               leading: const Icon(Icons.undo, size: 22, color: T.inkSecondary),
               title: Text('退回「${prev.name}」'),
               subtitle: const Text('打错了或者还没到时候',
@@ -891,7 +900,8 @@ class _NoteCard extends StatelessWidget {
               },
             ),
           ListTile(
-            leading: Icon(thought.isPinned ? Icons.push_pin_outlined : Icons.push_pin),
+            // 图标规范①：菜单展示的是「当前状态」，激活（已置顶）用 filled
+            leading: Icon(thought.isPinned ? Icons.push_pin : Icons.push_pin_outlined),
             title: Text(thought.isPinned ? '取消置顶' : '置顶'),
             onTap: () {
               db.togglePin(thought.id);
@@ -901,8 +911,10 @@ class _NoteCard extends StatelessWidget {
           // 归档：介于「留着」和「删掉」之间的第三态——不做了但不想删，
           // 不占列表、不进回收站（竞品分析指出 flomo/Keep 都缺这一档）
           ListTile(
+            // 图标规范①：菜单展示「当前状态」——已归档显示 filled unarchive
+            //（代表可执行的反向操作），未归档显示 outlined archive
             leading: Icon(thought.isArchived
-                ? Icons.unarchive_outlined
+                ? Icons.unarchive
                 : Icons.archive_outlined),
             title: Text(thought.isArchived ? '取消归档' : '归档'),
             subtitle: Text(
@@ -946,7 +958,7 @@ class _StuckBadge extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.only(top: 6),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        const Icon(Icons.hourglass_bottom, size: 12, color: T.warning),
+        const Icon(Icons.hourglass_bottom, size: 14, color: T.warning),
         const SizedBox(width: 4),
         Text(label, style: const TextStyle(fontSize: 11, color: T.warning)),
       ]),
@@ -1190,7 +1202,10 @@ class _BatchTagSheetState extends State<_BatchTagSheet> {
                   .map((t) => FilterChip(
                         label: Text(t.name),
                         selected: _picked.contains(t.id),
-                        avatar: Icon(Icons.label,
+                        // 图标规范①：选中态 filled
+                        avatar: Icon(_picked.contains(t.id)
+                            ? Icons.label
+                            : Icons.label_outline,
                             size: 16,
                             color: parseHexColor(t.color)),
                         onSelected: (on) =>
@@ -1261,29 +1276,34 @@ class _DropFab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: 60,
-      height: 60,
-      decoration: BoxDecoration(
-        boxShadow: [
-          BoxShadow(
-            color: T.brandPrimary.withValues(alpha: 0.35),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
-          ),
-        ],
-      ),
-      child: Material(
-        color: T.brandPrimary,
-        clipBehavior: Clip.antiAlias,
-        shape: const _DropShapeBorder(),
-        child: InkWell(
-          onTap: onPressed,
-          customBorder: const _DropShapeBorder(),
-          child: const Center(
-            child: Padding(
-              padding: EdgeInsets.only(top: 6), // 水滴重心偏下，图标略下移
-              child: Icon(Icons.edit_outlined, color: Colors.white, size: 24),
+    return Tooltip(
+      message: '记一条',
+      child: Container(
+        width: 60,
+        height: 60,
+        decoration: BoxDecoration(
+          boxShadow: [
+            BoxShadow(
+              color: T.brandPrimary.withValues(alpha: 0.35),
+              blurRadius: 12,
+              offset: const Offset(0, 4),
+            ),
+          ],
+        ),
+        child: Material(
+          color: T.brandPrimary,
+          clipBehavior: Clip.antiAlias,
+          shape: const _DropShapeBorder(),
+          child: InkWell(
+            onTap: onPressed,
+            customBorder: const _DropShapeBorder(),
+            child: const Center(
+              child: Padding(
+                padding: EdgeInsets.only(top: 6), // 水滴重心偏下，图标略下移
+                // 图标规范：FAB 内白色图标用 filled edit——底色已满，
+                // outlined 白线在小尺寸下会糊
+                child: Icon(Icons.edit, color: Colors.white, size: 24),
+              ),
             ),
           ),
         ),

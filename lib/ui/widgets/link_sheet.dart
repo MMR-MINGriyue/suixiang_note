@@ -253,8 +253,9 @@ class _LinkSheetState extends State<LinkSheet> {
                 final t = candidates[i];
                 return ListTile(
                   dense: true,
+                  // 尺寸阶梯②：候选行 leading 从 18px 归到 20px 菜单档
                   leading: Icon(Icons.description_outlined,
-                      size: 18, color: T.inkTertiary),
+                      size: 20, color: T.inkTertiary),
                   title: Text(
                     t.title.trim().isEmpty ? '（无标题）' : t.title,
                     maxLines: 1,
@@ -293,6 +294,8 @@ class _LinkSheetState extends State<LinkSheet> {
         builder: (_) => DetailPage(db: widget.db, thought: t)));
   }
 
+  // 图标规范①：related 用 filled link（常态已连）、depends 箭头统一
+  // arrow_forward（列表行里方向感比 rounded 更清晰）、parent 树状 outlined
   static IconData _kindIcon(String kind) => switch (kind) {
         'depends' => Icons.arrow_forward,
         'parent' => Icons.account_tree_outlined,

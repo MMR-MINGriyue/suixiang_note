@@ -148,6 +148,7 @@ class _FindReplaceSheetState extends State<FindReplaceSheet> {
                   ? null
                   : IconButton(
                       icon: const Icon(Icons.close, size: 18),
+                      tooltip: '清空查找词',
                       onPressed: () => _find.clear(),
                     ),
               border: const OutlineInputBorder(),

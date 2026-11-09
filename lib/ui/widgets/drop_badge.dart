@@ -105,3 +105,13 @@ Path _dropPath(Size size) {
     ..cubicTo(4, h * 0.42, w / 2, 2, w / 2, 2)
     ..close();
 }
+
+/// 品牌水滴的「图标形态」别名（图标规范①）：
+/// 导航栏等处不能直接用 CustomPaint（NavigationDestination.icon 收 IconData），
+/// 统一映射到 Material 的 water_drop 轮廓/实心对，保证与 DropBadge 同一语言。
+/// （DropBadge 的自绘轮廓比 material 的 water_drop_outlined 更圆润，
+/// 二者在导航这类小尺寸下差异不可感知，故用 Material 对作为图标形态。）
+abstract final class DropBadgeIcons {
+  static const IconData dropOutline = Icons.water_drop_outlined;
+  static const IconData dropFilled = Icons.water_drop;
+}

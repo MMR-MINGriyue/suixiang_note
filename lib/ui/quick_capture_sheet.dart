@@ -306,7 +306,10 @@ class _QuickMetaChips extends StatelessWidget {
                     .map((t) => FilterChip(
                           label: Text(t.name),
                           selected: selected.contains(t.id),
-                          avatar: Icon(Icons.label,
+                          // 图标规范①：选中态 filled
+                          avatar: Icon(selected.contains(t.id)
+                              ? Icons.label
+                              : Icons.label_outline,
                               size: 16, color: hexToColor(t.color)),
                           onSelected: (on) => setSheetState(() =>
                               on ? selected.add(t.id) : selected.remove(t.id)),
