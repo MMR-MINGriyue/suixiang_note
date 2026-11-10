@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// 统一空态组件（创意 ④-3/⑥-4）：预渲染线稿插画 + 标题 + 副文案 + 可选动作。
-/// 插画为 160×120 PNG 位图（2x 超采样生成），深色主题用 ColorFiltered 调色。
+/// 插画为 320×240 PNG 位图（2x 资产，按 160×120 逻辑像素显示），深色主题用 ColorFiltered 调色。
 class EmptyState extends StatelessWidget {
   /// assets/illus/ 下的文件名，如 'empty_home.png'
   final String illus;
@@ -38,7 +38,8 @@ class EmptyState extends StatelessWidget {
                 'assets/illus/$illus',
                 width: 160,
                 height: 120,
-                filterQuality: FilterQuality.medium,
+                // 320×240 源按 160×120 逻辑像素显示，高 dpi 屏 1:1 采样不发虚
+                filterQuality: FilterQuality.high,
               ),
             ),
             const SizedBox(height: 20),
