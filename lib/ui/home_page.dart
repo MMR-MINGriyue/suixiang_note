@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:ui' as ui show TextDirection;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -15,6 +14,7 @@ import 'quick_capture_sheet.dart';
 import 'detail_page.dart';
 import 'trash_page.dart';
 import 'widgets/drop_badge.dart';
+import 'widgets/drop_shape.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/highlight_text.dart';
 
@@ -1268,8 +1268,13 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-/// 水滴形 FAB（创意 ①-4）：ClipPath 水滴裁切 + 单层 brandPrimary@35% 投影。
-/// 比普通圆 FAB 更贴品牌——「点一滴水，落一条随记」。
+/// 水滴形 FAB：「点一滴水，落一条随记」。
+///
+/// 轮廓由 widgets/drop_shape.dart 的 brandDropPath() 提供，与
+/// tool/gen_visual.py:drop_outline() 同源：尖顶 + 收腰 + 正圆底，宽高比 0.76。
+/// v1 的四段贝塞尔把 60×60 撑成 1:1 扁蛋形、底部是宽扁椭圆，v2.3 重塑时
+/// 漏改了这个 FAB，视觉上显得变形。投影走 Material.elevation（PhysicalShape
+/// 沿 shape 裁剪），不再用 BoxDecoration 的方形投影——方形阴影会露出直角。
 class _DropFab extends StatelessWidget {
   final VoidCallback onPressed;
   const _DropFab({required this.onPressed});
@@ -1278,28 +1283,23 @@ class _DropFab extends StatelessWidget {
   Widget build(BuildContext context) {
     return Tooltip(
       message: '记一条',
-      child: Container(
+      child: SizedBox(
         width: 60,
         height: 60,
-        decoration: BoxDecoration(
-          boxShadow: [
-            BoxShadow(
-              color: T.brandPrimary.withValues(alpha: 0.35),
-              blurRadius: 12,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
         child: Material(
           color: T.brandPrimary,
+          elevation: 6,
+          shadowColor: T.brandPrimary.withValues(alpha: 0.35),
           clipBehavior: Clip.antiAlias,
-          shape: const _DropShapeBorder(),
+          shape: const DropShapeBorder(),
           child: InkWell(
             onTap: onPressed,
-            customBorder: const _DropShapeBorder(),
+            customBorder: const DropShapeBorder(),
             child: const Center(
               child: Padding(
-                padding: EdgeInsets.only(top: 6), // 水滴重心偏下，图标略下移
+                // 正圆底的重心在 rect 高度约 0.61 处，Center 默认 0.5，
+                // 下移 12 让铅笔坐在圆底中心而不是收腰处。
+                padding: EdgeInsets.only(top: 12),
                 // 图标规范：FAB 内白色图标用 filled edit——底色已满，
                 // outlined 白线在小尺寸下会糊
                 child: Icon(Icons.edit, color: Colors.white, size: 24),
@@ -1310,35 +1310,4 @@ class _DropFab extends StatelessWidget {
       ),
     );
   }
-}
-
-/// 水滴轮廓：顶部尖 + 两侧圆弧 + 底部圆，与 DropBadge 的 _dropPath 同族
-class _DropShapeBorder extends OutlinedBorder {
-  const _DropShapeBorder();
-
-  @override
-  OutlinedBorder copyWith({BorderSide? side}) => const _DropShapeBorder();
-
-  @override
-  Path getInnerPath(Rect rect, {ui.TextDirection? textDirection}) =>
-      getOuterPath(rect, textDirection: textDirection);
-
-  @override
-  Path getOuterPath(Rect rect, {ui.TextDirection? textDirection}) {
-    final w = rect.width;
-    final h = rect.height;
-    return Path()
-      ..moveTo(w * 0.5, 0)
-      ..cubicTo(w * 0.72, h * 0.22, w, h * 0.42, w, h * 0.62)
-      ..cubicTo(w, h * 0.85, w * 0.78, h, w * 0.5, h)
-      ..cubicTo(w * 0.22, h, 0, h * 0.85, 0, h * 0.62)
-      ..cubicTo(0, h * 0.42, w * 0.28, h * 0.22, w * 0.5, 0)
-      ..close();
-  }
-
-  @override
-  void paint(Canvas canvas, Rect rect, {ui.TextDirection? textDirection}) {}
-
-  @override
-  ShapeBorder scale(double t) => const _DropShapeBorder();
 }

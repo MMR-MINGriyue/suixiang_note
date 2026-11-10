@@ -1,7 +1,7 @@
 name: suixiang_note
 description: "随想随记 — 本地优先的轻量灵感管理 App（Windows 桌面先行）"
 publish_to: 'none'
-version: 2.3.0+13
+version: 2.3.1+14
 
 environment:
   sdk: ^3.13.2
