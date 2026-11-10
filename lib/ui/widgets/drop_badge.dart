@@ -22,14 +22,15 @@ class DropBadge extends StatelessWidget {
     switch (kind) {
       case 'in_progress':
         drop = CustomPaint(
-            painter: _HalfDrop(color: color), size: Size(size, size));
+            painter: _HalfDrop(color: color, size: size),
+            size: Size(size, size));
         break;
       case 'done':
         drop = Icon(Icons.water_drop, size: size * 0.875, color: color);
         break;
       default:
         drop = CustomPaint(
-            painter: _OutlineDrop(color), size: Size(size, size));
+            painter: _OutlineDrop(color, size), size: Size(size, size));
     }
     return SizedBox(
         width: size, height: size, child: Center(child: drop));
@@ -53,9 +54,14 @@ Stage stageOf(List<Stage> stages, Thought thought) {
   }
 }
 
+/// 描边随徽章尺寸缩放（比例规范）：14px≈1.8 / 24px≈2.2 / 48px≈2.4，
+/// 避免小尺寸描边显粗、大尺寸描边显细。
+double _dropStroke(double size) => (size * 0.10).clamp(1.4, 2.4);
+
 class _OutlineDrop extends CustomPainter {
   final Color color;
-  const _OutlineDrop(this.color);
+  final double size;
+  const _OutlineDrop(this.color, this.size);
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -63,17 +69,19 @@ class _OutlineDrop extends CustomPainter {
         _dropPath(size),
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
+          ..strokeWidth = _dropStroke(this.size)
           ..color = color);
   }
 
   @override
-  bool shouldRepaint(covariant _OutlineDrop old) => old.color != color;
+  bool shouldRepaint(covariant _OutlineDrop old) =>
+      old.color != color || old.size != size;
 }
 
 class _HalfDrop extends CustomPainter {
   final Color color;
-  _HalfDrop({required this.color});
+  final double size;
+  _HalfDrop({required this.color, required this.size});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -82,7 +90,7 @@ class _HalfDrop extends CustomPainter {
         path,
         Paint()
           ..style = PaintingStyle.stroke
-          ..strokeWidth = 2
+          ..strokeWidth = _dropStroke(this.size)
           ..color = color);
     canvas.save();
     canvas.clipRect(
@@ -92,7 +100,8 @@ class _HalfDrop extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(covariant _HalfDrop old) => old.color != color;
+  bool shouldRepaint(covariant _HalfDrop old) =>
+      old.color != color || old.size != size;
 }
 
 Path _dropPath(Size size) {

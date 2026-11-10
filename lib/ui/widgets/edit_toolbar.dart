@@ -176,7 +176,7 @@ class _IconBtn extends StatelessWidget {
           height: 48,
           child: Icon(
             icon,
-            size: 19,
+            size: 20,
             color: enabled
                 ? T.ink2(context)
                 : T.ink3(context).withValues(alpha: 0.35),
