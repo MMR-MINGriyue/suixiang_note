@@ -36,6 +36,8 @@ void main() {
     // 不走 rootBundle：直接从磁盘读同一份资产，测试与产物读的是同一个文件
     final raw = await File('assets/pinyin/first_letter.txt').readAsString();
     await PinyinSearch.loadFromString(raw);
+    final rawFull = await File('assets/pinyin/full_pinyin.txt').readAsString();
+    await PinyinSearch.loadFullFromString(rawFull);
   });
 
   tearDownAll(() async {
@@ -72,6 +74,34 @@ void main() {
       expect(PinyinSearch.initials('随想随记'), 'sxsj');
       expect(PinyinSearch.initials('钢结构'), 'gjg');
       expect(PinyinSearch.initials('手工'), 'sg');
+    });
+
+    test('全拼表已载入且转换正确', () {
+      expect(PinyinSearch.isFullReady, isTrue);
+      expect(PinyinSearch.fullPinyin('手工'), 'shougong');
+      expect(PinyinSearch.fullPinyin('随想随记'), 'suixiangsuiji');
+      expect(PinyinSearch.fullPinyin('钢结构'), 'gangjiegou');
+    });
+
+    test('全拼命中（含跨音节与 ASCII 混排）', () {
+      expect(PinyinSearch.matches('手工皮具的想法', 'shougong'), isTrue);
+      // 跨音节子串：宽松命中，与首字母路径行为一致
+      expect(PinyinSearch.matches('手工', 'ougo'), isTrue);
+      expect(PinyinSearch.fullPinyin('Flutter 手记'), 'fluttershouji');
+    });
+
+    test('全拼 miss 不串到首字母假阳', () {
+      // 'zzz' 既不在首字母流也不在全拼流
+      expect(PinyinSearch.matches('手工皮具的想法', 'zzz'), isFalse);
+      expect(PinyinSearch.matches('手工皮具的想法', 'zhengzhou'), isFalse);
+    });
+
+    test('命中区间：全拼映射回原汉字', () {
+      final r = PinyinSearch.ranges('手工皮具的想法', 'shougong');
+      expect(r.length, 1);
+      // 「手工」两字 → start 0, end 2（整音节收敛回首字符区间）
+      expect(r.first.start, 0);
+      expect(r.first.end, 2);
     });
 
     test('英文与混合串：ASCII 保留并转小写，标点丢弃', () {
@@ -139,6 +169,14 @@ void main() {
       final list = await db.watchFeed(query: 'gjg').first;
       expect(list.length, 1);
       expect(list.first.title, '钢结构驻厂监造的经验');
+    });
+
+    test('全拼能搜到汉字随记（v2.7.0 双表）', () async {
+      await seed('手工皮具的想法');
+      await seed('今天天气不错');
+      final list = await db.watchFeed(query: 'shougong').first;
+      expect(list.length, 1);
+      expect(list.first.title, '手工皮具的想法');
     });
 
     test('字面搜索仍然有效', () async {

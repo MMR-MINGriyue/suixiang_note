@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 
 import '../core/edit_history.dart';
 import '../core/format.dart';
+import '../core/hashtag_match.dart';
 import '../core/markdown_edit.dart';
 import '../core/outline.dart';
 import '../data/app_database.dart';
@@ -16,6 +17,7 @@ import 'widgets/drop_badge.dart';
 import 'widgets/edit_toolbar.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/find_replace_sheet.dart';
+import 'widgets/hashtag_suggest_sheet.dart';
 import 'widgets/link_sheet.dart';
 import 'widgets/markdown_preview.dart';
 
@@ -39,6 +41,7 @@ class _DetailPageState extends State<DetailPage> {
   final _focusNode = FocusNode();
   Timer? _debounce;
   int _wordCount = 0;
+  int _paragraphCount = 0;
 
   /// 编辑历史：初始帧就是打开页面时的原文
   late final EditHistory _history;
@@ -70,6 +73,7 @@ class _DetailPageState extends State<DetailPage> {
     super.initState();
     _controller = TextEditingController(text: widget.thought.content);
     _wordCount = countWords(widget.thought.content);
+    _paragraphCount = countParagraphs(widget.thought.content);
     _history = EditHistory(widget.thought.content);
     _sections = Outline.parse(widget.thought.content);
     _reminderSub = widget.db
@@ -107,17 +111,97 @@ class _DetailPageState extends State<DetailPage> {
   void _onChanged(String text) {
     setState(() {
       _wordCount = countWords(text);
+      _paragraphCount = countParagraphs(text);
       _history.record(text, _controller.selection);
       _canUndo = _history.canUndo;
       _canRedo = _history.canRedo;
       _sections = Outline.parse(text);
       _caretSection = _indexOfSectionAt(_sections, _controller.selection.start);
     });
+    // 移除 `#片段` 后正文可能仍留有更早的 `#`（如「#a#b」→ 移除后成「#a」），
+    // 若不抑制就会立刻再次触发联想条，形成自激回路。
+    final suppress = _suppressHashtag;
+    _suppressHashtag = false;
+    if (!suppress) _maybeShowHashtag(text);
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () {
       widget.db.saveDraft(id: widget.thought.id, content: text);
     });
     _maybeContinueList(text);
+  }
+
+  /// `#片段` 快速打标（v2.7.0）：与速记页同一套触发器（[hashtagTriggerAt]）。
+  ///
+  /// 详情页的差异只在写路径——草稿已存在，直接「追加式」打标：先读现有
+  /// 标签 ids，选中标签 add 进去再 setThoughtTags 整体写回（该方法是
+  /// 替换式事务，所以必须带全量）。选中后同样把 `#片段` 从正文移除，
+  /// `_onChanged` 随之触发防抖落库。
+  bool _tagSheetOpen = false;
+  String? _lastTriggerKey;
+
+  /// 一次性抑制标记：程序化移除 `#片段` 时置位，下一次 [_onChanged] 跳过触发判定
+  bool _suppressHashtag = false;
+
+  void _maybeShowHashtag(String text) {
+    if (_tagSheetOpen || _previewing) return;
+    final sel = _controller.selection;
+    if (!sel.isValid || !sel.isCollapsed) return;
+    final m = hashtagTriggerAt(text, sel.start);
+    if (m == null) {
+      _lastTriggerKey = null;
+      return;
+    }
+    final key = '${m.start}:${m.query}';
+    if (key == _lastTriggerKey) return;
+    _lastTriggerKey = key;
+    _tagSheetOpen = true;
+    var picked = false;
+    HashtagSuggestSheet.show(
+      context,
+      db: widget.db,
+      query: m.query,
+      onPicked: (tag) {
+        picked = true;
+        _attachTagQuickly(tag);
+      },
+    ).then((_) {
+      _tagSheetOpen = false;
+      _lastTriggerKey = null;
+      if (picked) _removeHashtagFragment(m.start, m.end);
+      if (!_focusMode) _focusNode.requestFocus();
+    });
+  }
+
+  /// 追加式打标：现有 ids + 新标签整体写回（setThoughtTags 是替换式）。
+  /// createTag 查重语义：名字已存在（含墓碑复活）返回既有 Tag，所以这里
+  /// 拿到的 id 一定有效。Snackbar 用 picked.name，不用再反查。
+  Future<void> _attachTagQuickly(Tag picked) async {
+    final current =
+        await widget.db.watchTagsOfThought(widget.thought.id).first;
+    final ids = current.map((t) => t.id).toSet();
+    if (ids.add(picked.id)) {
+      await widget.db
+          .setThoughtTags(widget.thought.id, ids.toList(growable: false));
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已打标签「${picked.name}」')),
+        );
+      }
+    }
+  }
+
+  /// 选中标签后把 `#片段` 从正文移除（标签是元数据，不残留正文）
+  void _removeHashtagFragment(int start, int end) {
+    final text = _controller.text;
+    if (start < text.length && text.codeUnitAt(start) == 0x23) {
+      final next = text.replaceRange(start, end.clamp(start, text.length), '');
+      _controller.value = TextEditingValue(
+        text: next,
+        selection: TextSelection.collapsed(offset: start.clamp(0, next.length)),
+      );
+      _suppressHashtag = true;
+      _onChanged(next);
+    }
   }
 
   /// 检测「用户刚敲了一个回车」，并在列表/待办/引用行后面自动续上同样的前缀。
@@ -304,6 +388,7 @@ class _DetailPageState extends State<DetailPage> {
     _controller.value = TextEditingValue(text: r.text, selection: r.selection);
     setState(() {
       _wordCount = countWords(r.text);
+      _paragraphCount = countParagraphs(r.text);
       _history.record(r.text, r.selection, coalesce: coalesce);
       _canUndo = _history.canUndo;
       _canRedo = _history.canRedo;
@@ -324,6 +409,7 @@ class _DetailPageState extends State<DetailPage> {
     _controller.value = TextEditingValue(text: s.text, selection: s.selection);
     setState(() {
       _wordCount = countWords(s.text);
+      _paragraphCount = countParagraphs(s.text);
       _canUndo = _history.canUndo;
       _canRedo = _history.canRedo;
     });
@@ -338,6 +424,7 @@ class _DetailPageState extends State<DetailPage> {
     _controller.value = TextEditingValue(text: s.text, selection: s.selection);
     setState(() {
       _wordCount = countWords(s.text);
+      _paragraphCount = countParagraphs(s.text);
       _canUndo = _history.canUndo;
       _canRedo = _history.canRedo;
     });
@@ -480,7 +567,10 @@ class _DetailPageState extends State<DetailPage> {
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
                   child: Row(children: [
-                    Text('$_wordCount 字',
+                    Text(
+                        _paragraphCount > 0
+                            ? '$_wordCount 字 · $_paragraphCount 段'
+                            : '$_wordCount 字',
                         style: TextStyle(
                             fontSize: 11,
                             color: _wordCount > 9000 ? T.warning : T.inkTertiary)),

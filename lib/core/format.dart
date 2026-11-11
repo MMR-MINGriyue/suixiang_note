@@ -8,6 +8,15 @@ import 'package:flutter/painting.dart' show Color;
 /// 改口径（比如想把英文按词算）要同步三处。
 int countWords(String text) => text.replaceAll(RegExp(r'\s'), '').length;
 
+/// 段落数口径（v2.7.0 详情页底栏「N 字 · M 段」）：非空行数。
+///
+/// 用「非空行」而不是「\n\n 分隔块」：随记常见单换行连排，用户感知的
+/// 一段就是屏幕上一行；连续空行不计数，空正文为 0。
+int countParagraphs(String text) => text
+    .split('\n')
+    .where((line) => line.trim().isNotEmpty)
+    .length;
+
 /// 数据库里的 `#RRGGBB` 字符串 → Color。
 ///
 /// 抽出来的理由（架构评审 B3）：`replaceFirst('#')` + tryParse 原来散在

@@ -4,9 +4,11 @@ import 'package:flutter/material.dart';
 
 import '../data/app_database.dart';
 import '../core/format.dart';
+import '../core/hashtag_match.dart';
 import '../theme/tokens.dart';
 import 'widgets/color_palette.dart';
 import 'widgets/empty_state.dart';
+import 'widgets/hashtag_suggest_sheet.dart';
 
 /// 速记捕捉页：模态全屏，自动落库（500ms 防抖），无保存按钮（PRD §4.1）
 class QuickCaptureSheet extends StatefulWidget {
@@ -72,6 +74,11 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
 
   void _onChanged(String text) {
     setState(() => _wordCount = countWords(text));
+    // 移除 `#片段` 后正文可能仍留有更早的 `#`（如「#a#b」→ 移除后成「#a」），
+    // 若不抑制就会立刻再次触发联想条，形成自激回路。
+    final suppress = _suppressHashtag;
+    _suppressHashtag = false;
+    if (!suppress) _maybeShowHashtag(text);
     _debounce?.cancel();
     _debounce = Timer(const Duration(milliseconds: 500), () async {
       final id = await widget.db.saveDraft(id: _savedId, content: text);
@@ -96,6 +103,77 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
         });
       }
     });
+  }
+
+  /// `#片段` 快速打标（v2.7.0）：光标前有无空格 `#xxx` 就弹联想条。
+  ///
+  /// 用「防抖结束标志」防重弹：联想条开着时继续输入只更新过滤器是不可能的
+  /// （modal bottom sheet 会抢焦点），所以这里的策略是——检测到触发器就弹，
+  /// 用户选中或点外部关闭后，片段由 [HashtagSuggestSheet] 的回调移除；
+  /// 若用户直接关掉，片段留在正文里继续敲字即可，不会再弹（`_tagSheetOpen`
+  /// 守卫 + 片段未变）。
+  bool _tagSheetOpen = false;
+  String? _lastTriggerKey;
+
+  /// 一次性抑制标记：程序化移除 `#片段` 时置位，下一次 [_onChanged] 跳过触发判定
+  bool _suppressHashtag = false;
+
+  void _maybeShowHashtag(String text) {
+    if (_tagSheetOpen) return;
+    final sel = _controller.selection;
+    if (!sel.isValid || !sel.isCollapsed) return;
+    final m = hashtagTriggerAt(text, sel.start);
+    if (m == null) {
+      _lastTriggerKey = null;
+      return;
+    }
+    final key = '${m.start}:${m.query}';
+    if (key == _lastTriggerKey) return; // 同一触发器不重复弹
+    _lastTriggerKey = key;
+    _tagSheetOpen = true;
+    var picked = false;
+    HashtagSuggestSheet.show(
+      context,
+      db: widget.db,
+      query: m.query,
+      onPicked: (tag) {
+        picked = true;
+        _attachTag(tag.id);
+      },
+    ).then((_) {
+      _tagSheetOpen = false;
+      _lastTriggerKey = null;
+      // 选中才移除片段；点外部关闭则保留，继续敲字可重新触发
+      if (picked) _removeHashtagFragment(m.start, m.end);
+      if (mounted) _focus.requestFocus();
+    });
+  }
+
+  /// 选中标签后：把 `#片段` 从正文移除（标签是元数据，不残留正文），
+  /// 并把标签挂到当前草稿（未落库先进 pending 集合）。
+  void _removeHashtagFragment(int start, int end) {
+    if (!mounted) return;
+    final text = _controller.text;
+    if (start < text.length && text.codeUnitAt(start) == 0x23) {
+      final next = text.replaceRange(start, end.clamp(start, text.length), '');
+      _controller.value = TextEditingValue(
+        text: next,
+        selection: TextSelection.collapsed(
+            offset: start.clamp(0, next.length)),
+      );
+      _suppressHashtag = true;
+      _onChanged(next);
+    }
+  }
+
+  /// 把标签挂上：已落库直接写，未落库进 pending（首次落库时统一写）
+  Future<void> _attachTag(int tagId) async {
+    if (_selectedTagIds.contains(tagId)) return;
+    setState(() => _selectedTagIds.add(tagId));
+    final id = _savedId;
+    if (id != null) {
+      await widget.db.setThoughtTags(id, _selectedTagIds.toList());
+    }
   }
 
   /// 防抖补写：关闭弹层时若还有未落库的最后输入，立即 flush
