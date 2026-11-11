@@ -226,11 +226,11 @@ class _AppShellState extends State<AppShell> with WidgetsBindingObserver {
         selectedIndex: _index,
         destinations: const [
           // 图标规范①：导航栏选中态 filled / 未选中 outlined（三组成对）。
-          // 「随记」的品牌水滴：灵感态轮廓即未选中、实心水滴即选中，
-          // 与列表里的 DropBadge 三态语言同源。
+          // 「随记」的品牌符号（v2.4 星雨落瓶）：灵感态轮廓即未选中、
+          // 满瓶即选中，与列表里的 DropBadge 三态语言同源。
           NavigationDestination(
             icon: Icon(DropBadgeIcons.dropOutline),
-            selectedIcon: Icon(Icons.water_drop),
+            selectedIcon: Icon(DropBadgeIcons.dropFilled),
             label: '随记',
           ),
           NavigationDestination(

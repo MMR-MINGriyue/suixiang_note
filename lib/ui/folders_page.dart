@@ -6,6 +6,7 @@ import '../theme/tokens.dart';
 import 'widgets/app_feedback.dart';
 import 'widgets/color_palette.dart';
 import 'widgets/empty_state.dart';
+import 'widgets/drop_badge.dart';
 
 /// Tab 1 文件夹（美化 P1 ④-1/④-2）：
 /// 收件箱通栏头卡（计数徽章化）+ 2 列 8 色抽屉网格 + 新建选色/长按换色/左滑删除
@@ -325,14 +326,14 @@ class _FolderTile extends StatelessWidget {
   }
 }
 
-/// 空态插图占位（沿用 water_drop 轮廓，不引私有 painter）
+/// 空态插图占位（v2.4 沿用品牌图标形态 science 轮廓，不引私有 painter）
 class DropBadgeFallback extends StatelessWidget {
   final String? keyName;
   const DropBadgeFallback({super.key, this.keyName});
 
   @override
   Widget build(BuildContext context) {
-    return const Icon(Icons.water_drop_outlined,
+    return const Icon(DropBadgeIcons.dropOutline,
         color: T.stageInspiration, size: 48);
   }
 }

@@ -161,7 +161,7 @@ class _QuickCaptureSheetState extends State<QuickCaptureSheet> {
                 onChanged: _onChanged,
                 textInputAction: TextInputAction.newline,
                 decoration: InputDecoration(
-                  hintText: '第一个念头，从一颗水滴开始…',
+                  hintText: '第一颗灵感，落进瓶子里…',
                   hintStyle: TextStyle(color: T.ink3(context), fontSize: 16),
                   border: InputBorder.none,
                 ),
@@ -218,8 +218,8 @@ class _SavedIndicator extends StatelessWidget {
   Widget build(BuildContext context) {
     if (savedAt == null) return const SizedBox.shrink();
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      // 创意 ②-1：保存徽章水滴化「落珠」
-      const Icon(Icons.water_drop, size: 14, color: T.stageDone),
+      // 创意 ②-1：保存徽章用完成绿（v2.4 星雨落瓶语言：灵感落瓶=已攒下）
+      const Icon(Icons.check_circle_outline, size: 14, color: T.stageDone),
       const SizedBox(width: 4),
       Text('已自动保存',
           style: TextStyle(

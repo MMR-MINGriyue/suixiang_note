@@ -439,7 +439,7 @@ class _ProfilePageState extends State<ProfilePage> {
           Card(
             child: Column(children: [
               ListTile(
-                leading: const Icon(Icons.water_drop_outlined, color: T.brandPrimary),
+                leading: const Icon(Icons.science_outlined, color: T.brandPrimary),
                 title: const Text('随想随记'),
                 // 版本号来自 core/app_info.dart，与 pubspec.yaml 同源校验，
                 // 不再手写——之前这里写死「v1.0」，实际已经跑到 1.8 了。

@@ -998,9 +998,9 @@ class _BatchActionBar extends StatelessWidget {
             onTap: () => _batchMove(context, ids),
           ),
           // 批量改状态：整理时常见动作用途是「这一批都做完了」，
-          // 逐条点水滴要点 N 次，这里一次落定。
+          // 逐条点徽章要点 N 次，这里一次落定。
           _ActionItem(
-            icon: Icons.water_drop_outlined,
+            icon: Icons.science_outlined,
             label: '状态',
             onTap: () => _batchStage(context, ids),
           ),
@@ -1262,19 +1262,20 @@ class _EmptyState extends StatelessWidget {
   Widget build(BuildContext context) {
     return const EmptyState(
       illus: 'empty_home.png',
-      title: '第一个念头，从一颗水滴开始',
+      title: '第一颗灵感，落进瓶子里',
       subtitle: '点右下角按钮，想到什么写什么',
     );
   }
 }
 
-/// 水滴形 FAB：「点一滴水，落一条随记」。
+/// 捕获 FAB：「接住一滴灵感」。
 ///
-/// 轮廓由 widgets/drop_shape.dart 的 brandDropPath() 提供，与
-/// tool/gen_visual.py:drop_outline() 同源：尖顶 + 收腰 + 正圆底，宽高比 0.76。
-/// v1 的四段贝塞尔把 60×60 撑成 1:1 扁蛋形、底部是宽扁椭圆，v2.3 重塑时
-/// 漏改了这个 FAB，视觉上显得变形。投影走 Material.elevation（PhysicalShape
-/// 沿 shape 裁剪），不再用 BoxDecoration 的方形投影——方形阴影会露出直角。
+/// 形状决策（v2.4 星雨落瓶）：**保留水滴**。瓶是「积累」的容器符号，
+/// 归属列表/徽章；而捕获动作本身是「一滴灵感落下来」的瞬间，水滴的
+/// 「将落未落」动势比瓶更贴切——积累用瓶、捕获用水滴，两个符号各司其职。
+/// 轮廓由 widgets/drop_shape.dart 的 brandDropPath() 提供，与生成器同源：
+/// 尖顶 + 收腰 + 正圆底，宽高比 0.76。投影走 Material.elevation
+/// （PhysicalShape 沿 shape 裁剪），不用 BoxDecoration 的方形投影。
 class _DropFab extends StatelessWidget {
   final VoidCallback onPressed;
   const _DropFab({required this.onPressed});
