@@ -7,7 +7,7 @@
 library;
 
 /// 必须与 pubspec.yaml 的 version 字段完全相同（含 +buildNumber）。
-const String kAppVersion = '2.4.1+16';
+const String kAppVersion = '2.5.0+17';
 
 /// 给用户看的短版本号（去掉 build number）
 String get kAppVersionShort => kAppVersion.split('+').first;
