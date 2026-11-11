@@ -133,12 +133,13 @@ def star_dust(im, cx, cy, spread, n, color, seed=7):
 # ---------------- 悬浮水晶球几何 ----------------
 def orb_geometry(H):
     """悬浮水晶球几何（单位坐标，×H + 中心）。
-    球半径 0.235 / 球心相对给定中心上移 0.04
+    球半径 0.262（v2.6.1 放大：小尺寸下球体存在感增强，直径占画布 ~44%）
+    / 球心相对给定中心上移 0.03（上浮幅度随球放大同步收敛）
     液面区间：ly ∈ [cy_orb + 0.75r(空), cy_orb - 0.05r(满)]
-    悬浮光环：球底下 0.75r 处，半宽 0.26H。"""
-    r = 0.235
-    return dict(r=r, dy=-0.04, liquid_a=0.75, liquid_b=-0.05,
-                halo_dy=0.75, halo_hw=0.26)
+    悬浮光环：球底下 0.62r 处（贴球更近，小尺寸仍可见），半宽 0.20H。"""
+    r = 0.262
+    return dict(r=r, dy=-0.03, liquid_a=0.75, liquid_b=-0.05,
+                halo_dy=0.62, halo_hw=0.20)
 
 
 def orb_liquid(cx, cy, H, level, g=None):
@@ -169,9 +170,12 @@ def make_jar(w, h, cx, cy, H, level=0.0, falling_star=True,
     ground_shadow: 未用（悬浮光环恒画），保留参数兼容插画调用。"""
     im = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     g = orb_geometry(H)
+    # 描边粗细带下限：16px 时仍 ≥1.5px 等效（超采样下 lw 下限 2 → 小尺寸更清晰）
     lw = max(2, int(0.045 * g['r'] * H * outline_scale))
     r = g['r'] * H
     ocx, ocy = cx, cy + g['dy']*H
+    # 小尺寸增强系数：H<100px 时自动放大坠星/高光，压缩细节（防糊）
+    small = max(0.0, min(1.0, (100.0 - H) / 60.0))  # 100px→0, 40px→1
 
     if monochrome:
         d = ImageDraw.Draw(im)
@@ -202,13 +206,14 @@ def make_jar(w, h, cx, cy, H, level=0.0, falling_star=True,
 
     # ---- 彩色版 ----
     # 0) 悬浮光环（球底下方，先画被球压住上缘）
+    #    v2.6.1：更贴球 + 提高亮度与线宽，小尺寸下仍可辨
     halo_hw = g['halo_hw']*H
     halo_y = ocy + g['halo_dy']*r
     halo = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-    ImageDraw.Draw(halo).ellipse([cx - halo_hw, halo_y - 0.020*H,
-                                  cx + halo_hw, halo_y + 0.020*H],
-                                 outline=GLOW_WARM + (185,), width=max(2, int(0.022*H)))
-    im.alpha_composite(halo.filter(ImageFilter.GaussianBlur(0.010*H)))
+    ImageDraw.Draw(halo).ellipse([cx - halo_hw, halo_y - 0.016*H,
+                                  cx + halo_hw, halo_y + 0.016*H],
+                                 outline=GLOW_WARM + (215,), width=max(2, int(0.026*H)))
+    im.alpha_composite(halo.filter(ImageFilter.GaussianBlur(0.008*H)))
 
     # 1) 球身：白 → 淡冷蓝纵渐变，圆形 mask
     yy, _ = np.mgrid[0:h, 0:w].astype(np.float32)
@@ -227,20 +232,22 @@ def make_jar(w, h, cx, cy, H, level=0.0, falling_star=True,
     im.alpha_composite(body_layer)
 
     # 2) 琥珀液弦（下半球缺 + 液面高光 + 白星）
+    #    v2.6.1：液弦 alpha 242→255、加 AMBER_L 液面带（提高小尺寸琥珀可读性）
     if level > 0.02:
         lpts, ly, half, _ = orb_liquid(cx, cy, H, level, g)
         liq = Image.new('RGBA', (w, h), (0, 0, 0, 0))
-        ImageDraw.Draw(liq).polygon(lpts, fill=AMBER + (242,))
+        ImageDraw.Draw(liq).polygon(lpts, fill=AMBER + (255,))
         im.alpha_composite(liq)
         d = ImageDraw.Draw(im)
-        # 液面微凸高光
-        eh = 0.018*r if level > 0.9 else 0.028*r
+        # 液面微凸高光（小尺寸下加厚）
+        eh = (0.018 if level > 0.9 else 0.028) * r * (1.0 + 0.5*small)
         d.ellipse([ocx - half*0.96, ly - eh, ocx + half*0.96, ly + eh],
                   fill=AMBER_L + (255,))
-        # 液内两颗白星
+        # 液内两颗白星（小尺寸下省略第二颗，防糊）
         seg = (ocy + r) - ly
-        star4(d, ocx - 0.30*r, ly + seg*0.42, 0.14*r, 0.40, WHITE + (255,))
-        star4(d, ocx + 0.22*r, ly + seg*0.62, 0.10*r, 0.40, WHITE + (230,))
+        star4(d, ocx - 0.30*r, ly + seg*0.42, 0.15*r, 0.40, WHITE + (255,))
+        if small < 0.5:
+            star4(d, ocx + 0.22*r, ly + seg*0.62, 0.10*r, 0.40, WHITE + (230,))
 
     # 3) 玻璃双层描边 + 左上高光弧 + 高光点
     d = ImageDraw.Draw(im)
@@ -258,18 +265,22 @@ def make_jar(w, h, cx, cy, H, level=0.0, falling_star=True,
     d.ellipse([hx-hr2, hy-hr2, hx+hr2, hy+hr2], fill=WHITE + (235,))
 
     # 4) 右上坠星 + 光晕 + 曳尾 + 伴星
+    #    v2.6.1：主星放大 0.070→0.088H 且随小尺寸再增强，星尘在小尺寸下省略（防噪点）
     if falling_star:
+        star_r = 0.088*H * (1.0 + 0.35*small)
         sx, sy = cx + 0.26*H, ocy - 0.70*r
         im.alpha_composite(radial_glow(w, h, sx - 0.02*H, sy + 0.02*H,
-                                       0.12*H, GLOW_WARM, 0.50))
-        im.alpha_composite(radial_glow(w, h, sx, sy, 0.065*H, WHITE, 0.40))
+                                       (0.12 + 0.05*small)*H, GLOW_WARM, 0.55))
+        im.alpha_composite(radial_glow(w, h, sx, sy,
+                                       (0.065 + 0.03*small)*H, WHITE, 0.45))
         d = ImageDraw.Draw(im)
         star_trail(d, sx, sy, sx - 0.045*H, sy + 0.12*H,
-                   w=max(1, int(0.010*H)))
-        star4_q(d, sx, sy, 0.070*H, WHITE + (255,))
-        star4_q(d, sx, sy, 0.040*H, GLOW_WARM + (255,))
-        star4_q(d, cx - 0.30*H, ocy - 0.45*r, 0.024*H, WHITE + (215,))
-        star_dust(im, sx - 0.05*H, sy, 0.11*H, 6, WHITE, seed=11)
+                   w=max(1, int(0.012*H)))
+        star4_q(d, sx, sy, star_r, WHITE + (255,))
+        star4_q(d, sx, sy, star_r * 0.45, GLOW_WARM + (255,))
+        star4_q(d, cx - 0.30*H, ocy - 0.45*r, 0.028*H, WHITE + (215,))
+        if small < 0.5:  # 只在大尺寸画星尘（小尺寸下会糊成噪点）
+            star_dust(im, sx - 0.05*H, sy, 0.11*H, 6, WHITE, seed=11)
     return im
 
 
@@ -284,8 +295,8 @@ def compose_foreground(S, mono=False):
     if not mono:
         base.alpha_composite(radial_glow(W, Hc, W/2, Hc*0.55, W*0.42, WHITE, 0.30))
         base.alpha_composite(radial_glow(W, Hc, W*0.66, Hc*0.22, W*0.28, GLOW_WARM, 0.20))
-    jh = S*SS*0.66
-    base.alpha_composite(make_jar(W, Hc, W/2, Hc*0.52, jh, level=0.5, monochrome=mono))
+    jh = S*SS*0.72
+    base.alpha_composite(make_jar(W, Hc, W/2, Hc*0.50, jh, level=0.5, monochrome=mono))
     return down(base, (S, S))
 
 
@@ -295,8 +306,8 @@ def compose_static(S, round_icon=False):
     bg = diag_gradient(W, Hc, INK_DEEP, BRAND, CYAN_BRIGHT)
     bg.alpha_composite(radial_glow(W, Hc, W*0.66, Hc*0.22, W*0.34, GLOW_WARM, 0.16))
     bg.alpha_composite(radial_glow(W, Hc, W*0.30, Hc*0.80, W*0.36, INK_DEEP, 0.22))
-    jh = S*SS*0.66
-    bg.alpha_composite(make_jar(W, Hc, W/2, Hc*0.52, jh, level=0.5))
+    jh = S*SS*0.72
+    bg.alpha_composite(make_jar(W, Hc, W/2, Hc*0.50, jh, level=0.5))
     # 圆角/圆形遮罩放最后，圆角外完全透明
     mask = Image.new('L', (W, Hc), 0)
     md = ImageDraw.Draw(mask)
