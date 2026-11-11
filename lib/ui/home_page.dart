@@ -18,7 +18,7 @@ import 'widgets/drop_shape.dart';
 import 'widgets/empty_state.dart';
 import 'widgets/highlight_text.dart';
 
-/// 首页「灵感流」：搜索栏 + 置顶优先列表；单击水滴切三态（主线 C：1 次点击推进）
+/// 首页「灵感流」：搜索栏 + 置顶优先列表；单击瓶子切三态（主线 C：1 次点击推进）
 class HomePage extends StatefulWidget {
   final AppDatabase db;
   const HomePage({super.key, required this.db});
@@ -322,7 +322,7 @@ class _HomePageState extends State<HomePage> {
         return const EmptyState(
           illus: 'empty_home.png',
           title: '这个状态还没有随记',
-          subtitle: '点卡片左下角的水滴，就能把随记推进到下一态',
+          subtitle: '点卡片左下角的瓶子，就能把随记推进到下一态',
         );
       }
       return _query.isEmpty && _tagFilter == null
@@ -333,7 +333,7 @@ class _HomePageState extends State<HomePage> {
       stream: db.watchStages(),
       builder: (context, stageSnap) {
         // 阶段列表提到列表级订阅一次：原来每张卡里各自 watchStages()，
-        // 50 条就是 50 条订阅（加上水滴徽章与卡住提示各一条，共上百条）。
+        // 50 条就是 50 条订阅（加上星瓶徽章与卡住提示各一条，共上百条）。
         // stages 只有三行且几乎不变，订阅一次、按值下发最省。
         final stages = stageSnap.data ?? const <Stage>[];
         return ListView.separated(
@@ -516,7 +516,7 @@ class _SearchEmpty extends StatelessWidget {  final String query;
   }
 }
 
-/// 单卡：纸感卡片 + 标题/预览/时间 + 水滴三态徽章（点按切态）
+/// 单卡：纸感卡片 + 标题/预览/时间 + 星瓶三态徽章（点按切态）
 /// 多选模式：点按=勾选/取消，长按仍弹单条操作
 class _NoteCard extends StatelessWidget {
   final AppDatabase db;
@@ -716,7 +716,7 @@ class _NoteCard extends StatelessWidget {
                     // 完成躺着应该，只有推进中停住才值得被看见。
                     _StuckBadge(thought: thought, stages: stages),
                     const SizedBox(height: 8),
-                    // 层级三：标签 chips + 左下水滴徽章
+                    // 层级三：标签 chips + 左下星瓶徽章
                     Row(
                       crossAxisAlignment: CrossAxisAlignment.end,
                       children: [
@@ -754,7 +754,7 @@ class _NoteCard extends StatelessWidget {
                             },
                           ),
                         ),
-                        // 水滴三态徽章移到左下（点击推进，44px 触控区）
+                        // 星瓶三态徽章移到左下（点击推进，44px 触控区）
                         Builder(builder: (context) {
                           final stage = stageOf(stages, thought);
                           return InkWell(
@@ -802,7 +802,7 @@ class _NoteCard extends StatelessWidget {
     ));
   }
 
-  /// 长按水滴：三态直接选。比「点两圈退一步」快，也比拖动排序好理解。
+  /// 长按星瓶：三态直接选。比「点两圈退一步」快，也比拖动排序好理解。
   Future<void> _pickStage(BuildContext context, Stage current) async {
     if (stages.isEmpty) return;
     final picked = await showModalBottomSheet<Stage>(
@@ -860,7 +860,7 @@ class _NoteCard extends StatelessWidget {
       context: context,
       builder: (_) => SafeArea(
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          // 推进：长按菜单里也留一个入口。水滴角标只有 44px，
+          // 推进：长按菜单里也留一个入口。星瓶角标只有 44px，
           // 手小的人容易点不准；菜单里这一行带状态名，认得出当前位置。
           ListTile(
             leading: DropBadge(
@@ -1254,7 +1254,7 @@ class _ActionItem extends StatelessWidget {
   }
 }
 
-/// 空态：「纸 + 水滴」线稿插画 + 引导文案（创意 ④-3 复用统一 EmptyState）
+/// 空态：「纸 + 星瓶」线稿插画 + 引导文案（创意 ④-3 复用统一 EmptyState）
 class _EmptyState extends StatelessWidget {
   const _EmptyState();
 

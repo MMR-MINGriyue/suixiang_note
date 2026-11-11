@@ -657,7 +657,7 @@ class _DetailPageState extends State<DetailPage> {
   /// 三态选择面板：列出当前所有阶段，选中即落库并弹撤销条。
   ///
   /// 用 bottom sheet 而不是 PopupMenu：手机上一行一个 48px 的行，
-  /// 三态各带水滴徽章和一句「什么意思」，比小箭头菜单好点也好懂。
+  /// 三态各带星瓶徽章和一句「什么意思」，比小箭头菜单好点也好懂。
   Future<void> _pickStage(
       BuildContext context, List<Stage> stages, Stage current) async {
     if (stages.isEmpty) return;

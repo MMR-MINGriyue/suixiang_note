@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 /// 统一空态组件（创意 ④-3/⑥-4）：预渲染线稿插画 + 标题 + 副文案 + 可选动作。
-/// 插画为 320×240 PNG 位图（2x 资产，按 160×120 逻辑像素显示），深色主题用 ColorFiltered 调色。
+/// 插画为 320×240 PNG 位图（2x 资产，按 160×120 逻辑像素显示）。
+/// 深色模式不再整图刷单色（v2.4.1 修复：琥珀液面/闪星必须保留），
+/// 改为 Image 原色显示——插画自带暖光斑与琥珀，在深底上自然提亮。
 class EmptyState extends StatelessWidget {
   /// assets/illus/ 下的文件名，如 'empty_home.png'
   final String illus;
@@ -22,25 +24,20 @@ class EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final dark = theme.brightness == Brightness.dark;
     return Center(
       child: Padding(
         padding: const EdgeInsets.symmetric(horizontal: 32),
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            ColorFiltered(
-              // 深色模式：线稿提亮（雾靛 → 浅雾靛），透明底不受影响
-              colorFilter: dark
-                  ? const ColorFilter.mode(Color(0xFFC9D6F2), BlendMode.srcATop)
-                  : const ColorFilter.mode(Colors.transparent, BlendMode.dst),
-              child: Image.asset(
-                'assets/illus/$illus',
-                width: 160,
-                height: 120,
-                // 320×240 源按 160×120 逻辑像素显示，高 dpi 屏 1:1 采样不发虚
-                filterQuality: FilterQuality.high,
-              ),
+            // v2.4.1：深色模式不再整图刷单色（会把琥珀液面/闪星吃掉），
+            // 插画自带暖光斑与琥珀，直接原色显示。
+            Image.asset(
+              'assets/illus/$illus',
+              width: 160,
+              height: 120,
+              // 320×240 源按 160×120 逻辑像素显示，高 dpi 屏 1:1 采样不发虚
+              filterQuality: FilterQuality.high,
             ),
             const SizedBox(height: 20),
             Text(title,

@@ -1,14 +1,22 @@
 # -*- coding: utf-8 -*-
 """
-随想随记 · 全新美术素材生成（视觉重塑 v2.4）
+随想随记 · 全新美术素材生成（视觉重塑 v2.4 / 美术丰富化 v2.4.1）
 设计概念：「星雨 · 落瓶」(Star Rain into the Jar)
   - 弃用 v2.3 的「水滴」（用户反馈：水滴离「灵感」太远，且积累没有形象寓意）
   - 品牌符号 = 开口玻璃瓶 + 瓶内琥珀液面（积累） + 正坠的四芒闪星（灵感降临）
-    一图双义：正在闪 = 一次灵感来了；液面高度 = 已经攒了多少
+     一图双义：正在闪 = 一次灵感来了；液面高度 = 已经攒了多少
   - 琥珀金是「灵感/闪」的专属色（绿仍专属完成、蓝仍专属推进中，语义不冲突）
   - 启动图标取「半满瓶」态：随想随记，永远攒在半路上
-  - 全套素材（启动图标 / 空态插画 / 纸纹 / ico）统一到
-    奶白纸底 + 雾靛线稿 + 品牌蓝渐变 + 琥珀金点睛 + 极淡径向光晕
+
+v2.4.1 美术丰富化（用户：整体风格太简单，要更丰富精致）：
+  - 更多场景细节：胶带 / 字行 / 小标签 / 节点标签 / 飘散星尘
+  - 光感与质感：液体竖向渐变、玻璃厚度双高光、液面折射、底部弧光、
+     多层柔和光晕、瓶底落影（仅插画）
+  - 更闪的星轨光斑：主星 + 伴星 + 星轨弧 + 星尘 + 暖色光斑
+  - 更饱满的底色与纸感：暖色渐层纸底、边角暖阴影、纤维感纸纹
+  - 覆盖范围：四态图标 + 四张空态插画 + 纸纹（App 内呈现见 empty_state.dart）
+  ★ 几何（jar_geometry / jar_outline / jar_liquid）逐字未改，与
+    lib/ui/widgets/drop_shape.dart 及 test/drop_shape_test.dart 同源。
 
 本脚本自 v2.3 起是图标/插画/纸纹的唯一权威生成器；
 tool/gen_icons.py 与 tool/gen_assets.py 保留为 v1/v2 历史设计档案，勿再执行
@@ -43,6 +51,12 @@ AMBER   = (255, 176, 59)    # #FFB03B 琥珀金 / 灵感闪星（v2.4 新增专�
 AMBER_L = (255, 214, 140)   # 亮部 / 液面
 AMBER_D = (222, 138, 22)    # #DE8A16 暗部 / 液体阴影
 WHITE   = (255, 255, 255)
+
+# ---- v2.4.1 美术丰富化补充色 ----
+PAPER_HI  = (255, 252, 246)   # 纸底中心暖高光
+PAPER_LO  = (237, 228, 212)   # 纸底四角暖阴影
+GLOW_WARM = (255, 227, 172)   # 暖色光斑（星轨氛围 / 更饱满的底色）
+TAPE      = (216, 226, 248)   # 半透明胶带（雾靛）
 
 SS = 4  # 超采样倍数（抗锯齿）
 
@@ -174,12 +188,67 @@ def radial_glow(w, h, cx, cy, radius, color, peak):
     return Image.fromarray(arr.astype(np.uint8), 'RGBA')
 
 
+def paper_base(w, h):
+    """不透明奶白纸底：中心暖高光 → 四角暖阴影的柔和渐层（v2.4.1）。"""
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float32)
+    nx = (xx - w * 0.5) / (w * 0.5)
+    ny = (yy - h * 0.5) / (h * 0.5)
+    r = np.clip(np.sqrt(nx * nx + ny * ny) / 1.414, 0, 1)[..., None]
+    hi = np.array(PAPER_HI, np.float32)
+    lo = np.array(PAPER_LO, np.float32)
+    rgb = hi * (1 - r) + lo * r
+    arr = np.zeros((h, w, 4), np.uint8)
+    arr[..., :3] = rgb.astype(np.uint8)
+    arr[..., 3] = 255
+    return Image.fromarray(arr, 'RGBA')
+
+
+def star_dust(im, cx, cy, spread, n, color, seed=7):
+    """在 (cx,cy) 附近撒 n 颗星尘微点（大小/亮度随机）。坐标为像素。"""
+    rng = np.random.default_rng(seed)
+    d = ImageDraw.Draw(im)
+    for _ in range(n):
+        x = cx + rng.normal(0, spread * 0.55)
+        y = cy + rng.normal(0, spread * 0.45)
+        rr = rng.uniform(0.004, 0.012) * spread
+        al = int(rng.uniform(90, 200))
+        d.ellipse([x - rr, y - rr, x + rr, y + rr], fill=color + (al,))
+
+
+def liquid_gradient(w, h, lpts):
+    """液体竖向渐变层：液面 AMBER_L → 中部 AMBER → 瓶底 AMBER_D，
+    用 polygon mask 裁进瓶身。返回 RGBA 图层（v2.4.1 质感层次）。"""
+    ys = [p[1] for p in lpts]
+    y_top, y_bot = min(ys), max(ys)
+    t = np.clip((np.arange(h, dtype=np.float32) - y_top)
+                / max(1.0, y_bot - y_top), 0.0, 1.0)          # (h,)
+    hi = np.array(AMBER_L, np.float32)
+    mid = np.array(AMBER, np.float32)
+    lo = np.array(AMBER_D, np.float32)
+    first = (t <= 0.5)[:, None]                               # (h,1)
+    tt = np.where(first, (t / 0.5)[:, None],
+                  ((t - 0.5) / 0.5)[:, None])                 # (h,1)
+    c = np.where(first, hi + (mid - hi) * tt,
+                 mid + (lo - mid) * tt)                        # (h,3)
+    arr = np.zeros((h, w, 4), np.uint8)
+    arr[..., 0] = np.broadcast_to(c[:, 0:1].astype(np.uint8), (h, w))
+    arr[..., 1] = np.broadcast_to(c[:, 1:2].astype(np.uint8), (h, w))
+    arr[..., 2] = np.broadcast_to(c[:, 2:3].astype(np.uint8), (h, w))
+    arr[..., 3] = 238
+    img = Image.fromarray(arr, 'RGBA')
+    mask = Image.new('L', (w, h), 0)
+    ImageDraw.Draw(mask).polygon(lpts, fill=255)
+    img.putalpha(Image.composite(img.split()[3], Image.new('L', (w, h), 0), mask))
+    return img
+
+
 def make_jar(w, h, cx, cy, H, level=0.0, falling_star=True,
-             monochrome=False, outline_scale=1.0):
+             monochrome=False, outline_scale=1.0, ground_shadow=False):
     """绘制『星雨落瓶』品牌符号，返回 RGBA 图层（w×h，超采样画布尺寸）。
     level ∈ [0,1]：0 空瓶 / 0.5 半满 / 1 全满（液面在瓶身内插值）。
-    falling_star: 是否画正坠闪星 + 曳尾。
-    monochrome: 主题图标单色版（纯 alpha 剪影 + 透明液面细弧）。"""
+    falling_star: 是否画正坠闪星 + 曳尾 + 星轨 + 星尘。
+    monochrome: 主题图标单色版（纯 alpha 剪影 + 透明液面细弧）。
+    ground_shadow: 瓶底落影（仅插画用；透明底图标不加）。"""
     im = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     g = jar_geometry(H)
     lip_w = max(2, int(0.034 * H * outline_scale))   # 玻璃壁描边宽
@@ -207,13 +276,20 @@ def make_jar(w, h, cx, cy, H, level=0.0, falling_star=True,
             d = ImageDraw.Draw(im)
             sx, sy = cx + 0.14*H, cy + (g['top_y'] - 0.18)*H
             star4(d, sx, sy, 0.10*H, 0.30, (0, 0, 0, 255))
-            # 曳尾（单色里也保留，纯 alpha）
             star_trail(d, sx, sy, sx - 0.07*H, sy + 0.20*H,
                        color=(0, 0, 0), w=max(1, int(0.012*H)))
         return im
 
     # ---- 彩色版 ----
-    # 1) 琥珀液体（先画，玻璃壁叠在上面）
+    # 0) 瓶底柔和落影（仅插画，透明底图标不加）
+    if ground_shadow:
+        sh = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+        ImageDraw.Draw(sh).ellipse(
+            [cx - 0.34*H, cy + 0.31*H, cx + 0.34*H, cy + 0.375*H],
+            fill=(120, 104, 78, 52))
+        im.alpha_composite(sh.filter(ImageFilter.GaussianBlur(0.030*H)))
+
+    # 1) 琥珀液体（竖向渐变 + 液面高光 + 白星 + 阴影带）
     if level > 0.02:
         lpts = jar_liquid(cx, cy, H, level, g)
         liquid = Image.new('RGBA', (w, h), (0, 0, 0, 0))
@@ -227,7 +303,10 @@ def make_jar(w, h, cx, cy, H, level=0.0, falling_star=True,
         eh = 0.012*H if level > 0.9 else 0.030*H   # 满瓶压扁，只留一条高光
         ld.ellipse([cx - half*H, surf_y - eh, cx + half*H, surf_y + eh],
                    fill=AMBER_L + (240,))
-        ld.polygon(lpts, fill=AMBER + (235,))
+        # 液体主体：竖向渐变（顶亮 → 底暗），mask 裁进瓶身
+        liquid.alpha_composite(liquid_gradient(w, h, lpts))
+        # 顶层装饰重取 draw（不被渐变盖住）
+        ld = ImageDraw.Draw(liquid)
         # 液体内两颗小白星（攒下的灵感还在闪）
         sr = 0.052*H
         star4(ld, cx - 0.12*H, surf_y + 0.11*H, sr, 0.34, WHITE + (255,))
@@ -239,37 +318,57 @@ def make_jar(w, h, cx, cy, H, level=0.0, falling_star=True,
                  (lpts[0][0] + 0.035*H, cy + (g['bot_y'] - 0.10)*H)],
                 fill=AMBER_D + (150,), width=max(2, int(0.045*H)))
         sh = sh.filter(ImageFilter.GaussianBlur(0.02*H))
-        # 只保留液体区域内的阴影
         mask_im = Image.new('L', (w, h), 0)
         ImageDraw.Draw(mask_im).polygon(lpts, fill=255)
         sh.putalpha(Image.composite(sh.split()[3], Image.new('L', (w, h), 0), mask_im))
         liquid.alpha_composite(sh)
         im.alpha_composite(liquid)
 
-    # 2) 玻璃壁（品牌蓝描边 + 内侧淡蓝高光条）
+    # 2) 玻璃壁（品牌蓝描边 + 内侧淡蓝双高光 + 口沿下沿厚度线）
     d = ImageDraw.Draw(im)
     pts = jar_outline(cx, cy, H, g)
     d.line(pts, fill=BRAND_D + (255,), width=lip_w, joint='curve')
     for p in (pts[0], pts[-1]):
         r = lip_w / 2
         d.ellipse([p[0]-r, p[1]-r, p[0]+r, p[1]+r], fill=BRAND_D + (255,))
-    # 左壁内侧淡蓝高光条（玻璃质感，细而低调）
+    # 口沿下沿：一条淡亮厚度线（玻璃口沿的双层质感）
+    d.line([(cx - (g['hw_mouth'] + g['lip'])*H, cy + g['top_y']*H + lip_w*0.7),
+            (cx - g['hw_mouth']*H, cy + g['top_y']*H + lip_w*0.7)],
+           fill=CONT + (170,), width=max(1, int(lip_w*0.40)))
+    d.line([(cx + g['hw_mouth']*H, cy + g['top_y']*H + lip_w*0.7),
+            (cx + (g['hw_mouth'] + g['lip'])*H, cy + g['top_y']*H + lip_w*0.7)],
+           fill=CONT + (170,), width=max(1, int(lip_w*0.40)))
+    # 左壁内侧双高光（长淡条 + 短亮点），玻璃质感
     hl = Image.new('RGBA', (w, h), (0, 0, 0, 0))
     hd = ImageDraw.Draw(hl)
     hx0 = cx - (g['hw_belly'] - 0.06)*H
     hd.line([(hx0, cy - 0.12*H), (hx0 + 0.010*H, cy + 0.16*H)],
             fill=CONT + (150,), width=max(2, int(0.024*H)))
-    hl = hl.filter(ImageFilter.GaussianBlur(0.012*H))
-    im.alpha_composite(hl)
+    hd.line([(hx0 - 0.018*H, cy - 0.06*H), (hx0 - 0.013*H, cy + 0.02*H)],
+            fill=WHITE + (170,), width=max(1, int(0.014*H)))
+    im.alpha_composite(hl.filter(ImageFilter.GaussianBlur(0.012*H)))
 
-    # 3) 正坠闪星 + 曳尾（瓶口上方偏右）
+    # 3) 正坠闪星 + 星轨 + 伴星 + 星尘 + 暖色光斑（v2.4.1 更闪）
     if falling_star:
         sx, sy = cx + 0.14*H, cy + (g['top_y'] - 0.18)*H
+        im.alpha_composite(radial_glow(w, h, sx - 0.04*H, sy - 0.02*H,
+                                       0.32*H, GLOW_WARM, 0.34))
         im.alpha_composite(radial_glow(w, h, sx, sy, 0.22*H, AMBER_L, 0.5))
         d = ImageDraw.Draw(im)
+        # 一条细星轨弧（灵感划过的轨迹）：二次贝塞尔，平滑无折角
+        p0 = np.array([sx - 0.24*H, sy - 0.10*H])
+        p1 = np.array([sx - 0.16*H, sy - 0.30*H])
+        p2 = np.array([sx + 0.02*H, sy - 0.20*H])
+        arc = bezier(p0, p1, p1, p2, n=48)
+        d.line([tuple(p) for p in arc], fill=AMBER_L + (120,),
+               width=max(1, int(0.007*H)), joint='curve')
         star_trail(d, sx, sy, sx - 0.08*H, sy + 0.22*H, w=max(1, int(0.010*H)))
         star4(d, sx, sy, 0.10*H, 0.30, AMBER)
         star4(d, sx, sy, 0.045*H, 0.42, AMBER_L)
+        # 两颗伴星
+        star4(d, sx - 0.19*H, sy - 0.10*H, 0.028*H, 0.32, AMBER_L)
+        star4(d, sx + 0.16*H, sy + 0.15*H, 0.020*H, 0.32, AMBER_L)
+        star_dust(im, sx - 0.02*H, sy, 0.22*H, 9, AMBER_L, seed=11)
     return im
 
 
@@ -278,9 +377,10 @@ def down(im, size):
 
 
 def compose_foreground(S, mono=False):
-    """自适应图标前景：透明底 + 淡光晕 + 星雨落瓶"""
+    """自适应图标前景：透明底 + 淡光晕 + 暖光斑 + 星雨落瓶"""
     W = Hc = S*SS
     base = radial_glow(W, Hc, W/2, Hc/2, W*0.46, CONT, 0.30)
+    base.alpha_composite(radial_glow(W, Hc, W/2, Hc*0.52, W*0.38, GLOW_WARM, 0.20))
     jh = S*SS*0.58                      # 瓶高占画布 58%（含闪星域）
     jar = make_jar(W, Hc, W/2, Hc*0.60, jh, level=0.5, monochrome=mono)
     if mono:
@@ -290,18 +390,21 @@ def compose_foreground(S, mono=False):
 
 
 def compose_static(S, round_icon=False):
-    """静态启动图标：奶白圆角/圆形底 + 光晕 + 星雨落瓶"""
+    """静态启动图标：暖色渐层圆角/圆形底 + 多层光晕 + 星雨落瓶"""
     W = Hc = S*SS
-    if round_icon:
-        bg = Image.new('RGBA', (W, Hc), (0, 0, 0, 0))
-        ImageDraw.Draw(bg).ellipse([0, 0, W-1, Hc-1], fill=PAPER+(255,))
-    else:
-        bg = Image.new('RGBA', (W, Hc), (0, 0, 0, 0))
-        ImageDraw.Draw(bg).rounded_rectangle(
-            [0, 0, W-1, Hc-1], radius=int(W*0.225), fill=PAPER+(255,))
-    bg.alpha_composite(radial_glow(W, Hc, W/2, Hc*0.55, W*0.44, CONT, 0.55))
+    bg = paper_base(W, Hc)              # 不透明暖渐层纸底
+    bg.alpha_composite(radial_glow(W, Hc, W/2, Hc*0.55, W*0.44, CONT, 0.50))
+    bg.alpha_composite(radial_glow(W, Hc, W/2, Hc*0.50, W*0.36, GLOW_WARM, 0.28))
     jh = S*SS*0.58
     bg.alpha_composite(make_jar(W, Hc, W/2, Hc*0.60, jh, level=0.5))
+    # 圆角/圆形遮罩放最后，圆角外完全透明
+    mask = Image.new('L', (W, Hc), 0)
+    md = ImageDraw.Draw(mask)
+    if round_icon:
+        md.ellipse([0, 0, W-1, Hc-1], fill=255)
+    else:
+        md.rounded_rectangle([0, 0, W-1, Hc-1], radius=int(W*0.225), fill=255)
+    bg.putalpha(mask)
     return down(bg, (S, S))
 
 
@@ -329,7 +432,6 @@ def line(draw, pts, width, color=LINE, dash=None):
                 draw.line([((a[0]+ux*p)*IS, (a[1]+uy*p)*IS),
                            ((a[0]+ux*q)*IS, (a[1]+uy*q)*IS)],
                           fill=color, width=w)
-                # 圆头
                 for (xx, yy) in [((a[0]+ux*p), (a[1]+uy*p)),
                                  ((a[0]+ux*q), (a[1]+uy*q))]:
                     r = w/2
@@ -352,95 +454,138 @@ def mini_star(d, cx, cy, R, color=AMBER, rot=-math.pi/2):
 
 
 def mini_jar(base, cx, cy, H, level=0.0, falling_star=True):
-    """插画里的点缀小落瓶。"""
+    """插画里的点缀小落瓶（带落影）。"""
     d = make_jar(IW, IH, cx*IS, cy*IS, H*IS, level=level,
-                 falling_star=falling_star, outline_scale=1.3)
+                 falling_star=falling_star, outline_scale=1.3,
+                 ground_shadow=True)
     base.alpha_composite(d)
 
 
 def illus_home():
+    """首页空态：三叠纸卡 + 胶带 + 字行 + 半满落瓶 + 星尘光斑。"""
     im = Image.new('RGBA', (IW, IH), (0, 0, 0, 0))
-    im.alpha_composite(radial_glow(IW, IH, 160*IS, 120*IS, 115*IS, CONT, 0.42))
+    im.alpha_composite(radial_glow(IW, IH, 160*IS, 120*IS, 120*IS, CONT, 0.42))
+    im.alpha_composite(radial_glow(IW, IH, 176*IS, 104*IS, 92*IS, GLOW_WARM, 0.30))
     d = ImageDraw.Draw(im)
     # 三张错叠纸卡
     rrect(d, (58, 88, 214, 190), 11, 2.0, color=LINE2)
     rrect(d, (78, 72, 236, 176), 11, 2.0, color=(184, 199, 234))
     rrect(d, (100, 56, 258, 160), 12, 2.4, color=MIST, fill=(252, 251, 248))
+    # 主卡字行 + 一枚小圆徽记
     line(d, [(122, 88), (224, 88)], 3.0)
     line(d, [(122, 110), (196, 110)], 3.0, color=LINE2)
-    # 右侧：小落瓶（半满）+ 正在坠落的闪星（带曳尾虚线）
+    line(d, [(122, 128), (172, 128)], 2.6, color=LINE2)
+    d.ellipse([(230*IS), (80*IS), (240*IS), (90*IS)], outline=MIST+(255,), width=2*IS)
+    # 顶部胶带（半透明斜四边形）
+    d.polygon([(168*IS, 48*IS), (196*IS, 44*IS), (200*IS, 60*IS), (172*IS, 64*IS)],
+              fill=TAPE + (200,))
+    # 左上角两颗小闪星 + 星尘
+    mini_star(d, 46, 54, 6, color=AMBER_L)
+    mini_star(d, 70, 40, 4, color=AMBER)
+    star_dust(im, 60*IS, 52*IS, 26*IS, 7, AMBER_L, seed=3)
+    # 右侧：小落瓶（半满）+ 坠落闪星虚线 + 星尘
     line(d, [(252, 30), (262, 48)], 2.2, dash=(6, 7), color=LINE2)
     mini_jar(im, 238, 158, 96, level=0.6)
+    star_dust(im, 250*IS, 60*IS, 22*IS, 6, AMBER_L, seed=5)
     return down(im, (320, 240))
 
 
 def illus_folder():
+    """文件夹空态：文件夹 + 露出的纸 + 字行小标签 + 空中正要落入的空瓶。"""
     im = Image.new('RGBA', (IW, IH), (0, 0, 0, 0))
-    im.alpha_composite(radial_glow(IW, IH, 160*IS, 125*IS, 112*IS, CONT, 0.42))
+    im.alpha_composite(radial_glow(IW, IH, 160*IS, 125*IS, 116*IS, CONT, 0.42))
+    im.alpha_composite(radial_glow(IW, IH, 196*IS, 84*IS, 80*IS, GLOW_WARM, 0.30))
     d = ImageDraw.Draw(im)
     # 后片（带折角标签）
     line(d, [(56, 78), (128, 78), (146, 96), (254, 96), (254, 176), (56, 176), (56, 78)], 2.4)
-    # 露出的一张空白纸
+    # 露出的一张空白纸 + 字行 + 右上小标签
     rrect(d, (86, 66, 224, 152), 8, 2.0, color=LINE2, fill=(252, 251, 248))
     line(d, [(106, 92), (186, 92)], 2.6, color=LINE2)
     line(d, [(106, 112), (166, 112)], 2.6, color=LINE2)
-    # 前片（梯形）
+    line(d, [(106, 130), (150, 130)], 2.4, color=LINE2)
+    rrect(d, (186, 76, 210, 90), 4, 1.8, color=MIST, fill=(238, 243, 255))
+    # 前片（梯形）+ 前片上一道淡横线（层次）
     line(d, [(46, 118), (266, 118), (246, 196), (66, 196), (46, 118)], 2.6)
-    # 上方小落瓶（空瓶等灵感）+ 闪星虚线
-    mini_jar(im, 160, 128, 76, level=0.0, falling_star=True)
-    line(d, [(160, 60), (160, 66)], 2.0, dash=(5, 6), color=LINE2)
+    line(d, [(60, 132), (260, 132)], 1.8, color=LINE2)
+    # 空中：小落瓶（空瓶等灵感）正要落入，配虚线轨迹 + 星尘
+    line(d, [(212, 44), (206, 58)], 2.0, dash=(5, 6), color=LINE2)
+    mini_jar(im, 214, 82, 62, level=0.0, falling_star=True)
+    star_dust(im, 214*IS, 48*IS, 24*IS, 7, AMBER_L, seed=9)
     return down(im, (320, 240))
 
 
 def illus_graph():
+    """关系图空态：三节点 + 虚线 + 节点标签 + 中央半满落瓶 + 星尘光斑。"""
     im = Image.new('RGBA', (IW, IH), (0, 0, 0, 0))
-    im.alpha_composite(radial_glow(IW, IH, 160*IS, 118*IS, 112*IS, CONT, 0.42))
+    im.alpha_composite(radial_glow(IW, IH, 160*IS, 118*IS, 116*IS, CONT, 0.42))
+    im.alpha_composite(radial_glow(IW, IH, 160*IS, 108*IS, 78*IS, GLOW_WARM, 0.28))
     d = ImageDraw.Draw(im)
     # 三条虚线连接（一条刻意断开 = 还没有关联）
     line(d, [(92, 78), (224, 78)], 2.2, dash=(9, 9), color=LINE2)
     line(d, [(92, 78), (160, 176)], 2.2, dash=(9, 9), color=LINE2)
     line(d, [(224, 78), (160, 176)], 2.2, dash=(9, 9), color=LINE2)
-    # 三个节点环
+    # 三个节点环 + 各自的小标签条
     for (x, y, c) in [(92, 78, BRAND), (224, 78, BRAND), (160, 176, DONE)]:
         r = 17
         d.ellipse([(x-r)*IS, (y-r)*IS, (x+r)*IS, (y+r)*IS],
                   outline=MIST+(255,), width=int(2.6*IS))
         d.ellipse([(x-7)*IS, (y-7)*IS, (x+7)*IS, (y+7)*IS], fill=c+(255,))
-    # 中央小落瓶（半满）
-    mini_jar(im, 160, 130, 70, level=0.5)
+    rrect(d, (66, 96, 118, 108), 4, 1.6, color=LINE2, fill=(252, 251, 248))
+    line(d, [(74, 102), (110, 102)], 1.6, color=LINE2)
+    rrect(d, (200, 96, 252, 108), 4, 1.6, color=LINE2, fill=(252, 251, 248))
+    line(d, [(208, 102), (244, 102)], 1.6, color=LINE2)
+    rrect(d, (132, 196, 188, 208), 4, 1.6, color=LINE2, fill=(252, 251, 248))
+    line(d, [(140, 202), (180, 202)], 1.6, color=LINE2)
+    # 中央小落瓶（半满），略上移不压交点
+    mini_jar(im, 160, 128, 68, level=0.5)
+    star_dust(im, 160*IS, 60*IS, 30*IS, 8, AMBER_L, seed=13)
     return down(im, (320, 240))
 
 
 def illus_trash():
+    """回收站空态：桶 + 标签 + 三颗飘出闪星 + 星轨 + 星尘光斑。"""
     im = Image.new('RGBA', (IW, IH), (0, 0, 0, 0))
-    im.alpha_composite(radial_glow(IW, IH, 160*IS, 128*IS, 110*IS, CONT, 0.42))
+    im.alpha_composite(radial_glow(IW, IH, 160*IS, 128*IS, 112*IS, CONT, 0.42))
+    im.alpha_composite(radial_glow(IW, IH, 160*IS, 62*IS, 84*IS, GLOW_WARM, 0.34))
     d = ImageDraw.Draw(im)
     # 桶盖 + 提手
     line(d, [(86, 92), (234, 92)], 2.6)
     line(d, [(140, 92), (146, 76), (174, 76), (180, 92)], 2.4)
-    # 桶身（上宽下窄）
+    # 桶身（上宽下窄）+ 中央小标签
     line(d, [(98, 100), (222, 100), (208, 192), (112, 192), (98, 100)], 2.6)
-    # 桶身竖线纹理
     line(d, [(134, 118), (139, 174)], 2.2, color=LINE2)
-    line(d, [(160, 118), (160, 174)], 2.2, color=LINE2)
     line(d, [(186, 118), (181, 174)], 2.2, color=LINE2)
+    rrect(d, (146, 132, 174, 152), 4, 1.8, color=LINE2, fill=(252, 251, 248))
+    line(d, [(152, 142), (168, 142)], 1.8, color=LINE2)
     # 飘出的小闪星（回收 = 灵感并未消失，还能再落进瓶里）
+    # 一条平滑细星轨弧（二次贝塞尔，避免尖锐折角）
+    _p0 = np.array([112.0, 56.0]); _p1 = np.array([140.0, 30.0]); _p2 = np.array([176.0, 44.0])
+    _arc = bezier(_p0, _p1, _p1, _p2, n=48)
+    d.line([(x*IS, y*IS) for x, y in _arc],
+           fill=AMBER_L + (150,), width=2*IS, joint='curve')
     mini_star(d, 122, 52, 9)
     mini_star(d, 196, 38, 12)
     mini_star(d, 160, 30, 7, color=AMBER_L)
+    mini_star(d, 150, 62, 4, color=AMBER_L)
+    mini_star(d, 208, 58, 5, color=AMBER)
+    star_dust(im, 160*IS, 46*IS, 46*IS, 14, AMBER_L, seed=17)
     return down(im, (320, 240))
 
 
-# ---------------- 纸纹（暖灰细噪，更贴纸感）----------------
+# ---------------- 纸纹（暖灰纤维细噪，更贴纸感 v2.4.1）----------------
 def paper_texture(dark):
-    """8×8 纸纤维细噪：alpha 恒 255，靠 PaperTexture 的 Opacity 稀释成 3%/1.5%。
-    浅色用冷灰压暖白纸底，深色用浅灰提亮深底，都比旧版（几乎全透明）更可读。"""
+    """8×8 纸纤维细噪 + 横向纤维：alpha 恒 255，靠 PaperTexture 的 Opacity 稀释。
+    浅色用冷灰压暖白纸底，深色用浅灰提亮深底；v2.4.1 加入横向纤维
+    让纸感更饱满（不是纯随机噪点）。"""
     rng = np.random.default_rng(20231110 if not dark else 20231111)
     n = rng.normal(0, 1, (8, 8))
+    fib = np.repeat(rng.normal(0, 0.45, (8, 1)), 8, axis=1)   # 横向纤维
     if dark:
-        rgb = np.stack([180 + n*22, 186 + n*22, 200 + n*22], axis=-1)
+        rgb = np.stack([180 + n*22 + fib*12, 186 + n*22 + fib*12,
+                        200 + n*22 + fib*9], axis=-1)
     else:
-        rgb = np.stack([118 + n*30, 124 + n*30, 138 + n*30], axis=-1)
+        rgb = np.stack([118 + n*30 + fib*14, 124 + n*30 + fib*14,
+                        138 + n*30 + fib*11], axis=-1)
     arr = np.zeros((8, 8, 4), np.uint8)
     arr[..., :3] = rgb.clip(0, 255).astype(np.uint8)
     arr[..., 3] = 255

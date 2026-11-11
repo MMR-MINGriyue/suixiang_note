@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 /// 随想随记 设计 Token —— 对齐《随想随记-UI-UX设计.md》§2
-/// 风格：纸感工作台 × 水滴进度
+/// 风格：纸感工作台 × 星雨落瓶
 ///
 /// v2.3 主题层补全：把「字号层级 / 组件默认外观」收进 ThemeData。
 /// 之前每个页面都在手写 `TextStyle(fontSize: 11, color: T.inkTertiary)`，

@@ -216,7 +216,7 @@ class _ProfilePageState extends State<ProfilePage> {
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
-          // 品牌头卡（创意 ⑦-1）：水滴 Logo + 总览数据（总数/推进中/已完成）
+          // 品牌头卡（创意 ⑦-1）：星瓶 Logo + 总览数据（总数/推进中/已完成）
           _BrandHeader(db: appDb),
           const SizedBox(height: 16),
           _SectionHeader('外观', color: T.brandPrimary),
@@ -461,7 +461,7 @@ class _ProfilePageState extends State<ProfilePage> {
     );
   }
 
-  /// 创意 ⑦-4：版本行 7 连击彩蛋——三颗水滴依次点亮 + SnackBar
+  /// 创意 ⑦-4：版本行 7 连击彩蛋——三颗星瓶依次点亮 + SnackBar
   void _onVersionTap() {
     _versionTaps++;
     if (_versionTaps < 7) return;
@@ -478,10 +478,10 @@ class _ProfilePageState extends State<ProfilePage> {
             DropBadge(kind: 'done', color: T.stageDone, size: 28),
           ]),
           const SizedBox(height: 16),
-          Text('水滴已集齐',
+          Text('星瓶已集齐',
               style: Theme.of(ctx).textTheme.titleMedium),
           const SizedBox(height: 4),
-          const Text('灵感 → 推进 → 完成，每一滴都算数',
+          const Text('灵感 → 推进 → 完成，每一颗都算数',
               style: TextStyle(fontSize: 12, color: T.inkSecondary)),
         ]),
         actions: [
@@ -654,7 +654,7 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-/// 品牌头卡（美化 P1 ⑦-1）：水滴 Logo + 三态总览数据
+/// 品牌头卡（美化 P1 ⑦-1）：星瓶 Logo + 三态总览数据
 class _BrandHeader extends StatelessWidget {
   final AppDatabase db;
   const _BrandHeader({required this.db});
@@ -672,7 +672,7 @@ class _BrandHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // 48px 水滴 Logo：完成态实心 + 品牌色（最小装饰实现，零自定义绘制）
+          // 48px 星瓶 Logo：完成态实心 + 品牌色（最小装饰实现，零自定义绘制）
           const DropBadge(kind: 'done', color: T.brandPrimary, size: 48),
           const SizedBox(width: 14),
           Expanded(
@@ -681,7 +681,7 @@ class _BrandHeader extends StatelessWidget {
               children: [
                 Text('随想随记', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 2),
-                Text('每一滴想法，都值得被接住',
+                Text('每一颗灵感，都值得被接住',
                     style: TextStyle(fontSize: 12, color: T.inkSecondary)),
               ],
             ),

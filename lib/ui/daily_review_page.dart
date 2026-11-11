@@ -224,7 +224,7 @@ class _Header extends StatelessWidget {
   }
 }
 
-/// 单张回顾卡：时间标注（N 天前）在上、正文为主体、状态水滴在左下。
+/// 单张回顾卡：时间标注（N 天前）在上、正文为主体、状态星瓶在左下。
 /// 刻意不做「编辑」——回顾是读，想改就点进详情页，别在这页开第二个编辑入口。
 class _ReviewCard extends StatelessWidget {
   final AppDatabase db;
